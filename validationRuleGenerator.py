@@ -5,7 +5,7 @@ import collections
 import re
 
 print('Reading...')
-m = json.load(open('metadata.json'))
+m = json.load(open('../metadata.json'))
 # fout = open('validationRules.json', 'w')
 
 # Create two dictionaries that reference the validationRules
