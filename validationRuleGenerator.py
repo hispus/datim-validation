@@ -26,10 +26,6 @@ for rule in m['validationRules']:
 deByName = {}
 for de in m['dataElements']:
     deByName[str.format(de['name'])] = de
-    if re.match(r'BS_SCREEN', de['name']) is not None:
-        print("'" + de['name'] + "'")
-    if de['name'] == "BS_SCREEN (N, DSD) TARGET: Blood Units Screened":
-        print("Match!")
 
 # Create a sorted list of data element names
 # (Names are processed below in sorted order only to benefit troubleshooting.)
@@ -60,5 +56,5 @@ for deName in sortedDeNames:
             if m:
                 destName = m.expand(p['dest'])
                 dest = deByName.get(destName, None)
-                print(de['name'] + ' :' + p['op'] + ': ' + destName + ('' if dest is None else ' NOT FOUND'))
+                print(de['name'] + ' :' + p['op'] + ': ' + destName + (' NOT FOUND' if dest is None else ''))
                 break
