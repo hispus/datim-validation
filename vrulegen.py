@@ -14,7 +14,12 @@ def readAll(dhis2type,fields):
     jsonout=req.json()
     return jsonout[dhis2type]
 
-dataElements = readAll('dataElements',"id,uid,name,shortName,description")
+def readObj(id,dhis2type):
+    req=requests.get(server_root+dhis2type+"/"+id,auth=server_autho)
+    jsonout=req.json()
+    return jsonout
+
+dataElements = readAll('dataElements',"id,uid,name,shortName,categoryCombo,description")
 validationRules = readAll('validationRules',"id,uid,name,rightSide[expression,dataElements],leftSide[expression,dataElements],operator")
 
 addedRules = []
@@ -108,15 +113,15 @@ rulePatterns = [
      'id': 'MR5'},
     {'source': re.compile('(.+) \(N, (\S+)\)( TARGET|): (.+)'), 
      'op': 'less_than_or_equal_to', 
-     'dest': '\\1 (D, \\2)\\3: \\4',
+     'dest': '\\1 (D, \\2)\\3',
      'name': 'Numerator > Denominator for \\1 (\\2) \\3',
      'id': 'MR6'},
     {'source': re.compile('(.+) \((N|D), (.+), (AgeLessThanTen|AgeAboveTen/Sex)(/Positive|)\)( TARGET|): (.+)'), 
-     'op': 'mutually_exclusive', 
+     'op': 'exclusive_pair', 
      'dest': '\\1 (\\2, \\3, Aggregated Age/Sex\\5)\\6',
      'id': 'MR7'},
     {'source': re.compile('(.+) \((N|D), (.+), (AgeLessThanTen|AgeAboveTen/Sex)(/Positive)\)( TARGET|): (.+)'), 
-     'op': 'mutually_exclusive', 
+     'op': 'exclusive_pair', 
      'dest': '\\1 (\\2, \\3, Age/Sex Aggregated/Result)\\6',
      'id': 'MR8'}
     ]
