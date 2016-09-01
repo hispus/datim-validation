@@ -48,7 +48,7 @@ def findAll(dhis2type,filter,fields=False):
     params['paging']=False
     if fields is not False:
         params['fields']=fields
-    elif not params.has_key('fields'):
+    elif not 'fields' in params:
         params['fields']="id,name,shortName,description"
     uri=server_root+dhis2type
     req=requests.get(uri,auth=server_auth,params=params)
@@ -64,16 +64,16 @@ def getObj(dhis2type,arg):
         id=arg
     elif type(arg) is unicode:
         id=arg
-    elif isinstance(arg,dict) and arg.has_key('id'):
+    elif isinstance(arg,dict) and 'id' in arg:
         id=arg['id']
     else:
         raise "Bad object argument"
-    if object_caches.has_key(dhis2type):
+    if dhis2type in object_caches:
         cache=object_caches[dhis2type]
     else:
         cache={}
         object_caches[dhis2type]=cache
-    if cache.has_key(id):
+    if id in cache:
         return cache[id]
     else:
         uri=server_root+dhis2type+"/"+id
@@ -105,7 +105,7 @@ def setup():
             print('Rule '+str(rule)+' is weird')
             continue
     for de in allDataElements:
-        if de.has_key('dataSets') and len(de['dataSets']) > 0:
+        if 'dataSets' in de and len(de['dataSets']) > 0:
             dataElements.append(de)
             name=deName(de)
             shortName=deShortName(de)
@@ -141,15 +141,15 @@ def makeVRULE(ls,op,rs,mr_name=False,use_name=False,use_description=False):
         mv_strategy='NEVER_SKIP'
     lse = makeElementExpression(ls,mv_strategy)
     rse = makeElementExpression(rs,mv_strategy)
-    if ls.has_key('shortName'):
+    if 'shortName' in ls:
         lname=ls['shortName']
     else:
         lname=ls['name']
-    if rs.has_key('shortName'):
+    if 'shortName' in rs:
         rname=rs['shortName']
     else:
         rname=rs['name']
-    if op_symbols.has_key(op):
+    if op in op_symbols:
         opname=op_symbols[op]
     else:
         opname=op
@@ -238,21 +238,21 @@ def main():
                 periodType="Quarterly"
                 if eltName.find("TARGET") > 0:
                     periodType="FinancialOct"
-                if p.has_key('periodType'):
+                if 'periodType' in p:
                     periodType=p['periodType']
-                if p.has_key('importance'):
+                if 'importance' in p:
                     importance=p['importance']
-                if p.has_key('ruletype'):
+                if 'ruletype' in p:
                     ruleType=p['ruletype']
                 m = p['source'].match(eltName)
                 if m:
                     destName = m.expand(p['dest'])
                     dest = deByName.get(destName, None)
-                    if p.has_key('description'):
+                    if 'description' in p:
                         use_description=m.expand(p['description'])
                     else:
                         use_description = False
-                    if p.has_key('name'):
+                    if 'name' in p:
                         use_name=m.expand(p['name'])
                     else:
                         use_name = False
@@ -267,11 +267,11 @@ def main():
                         vrule['importance']=importance
                         vrule['ruleType']=ruleType
                         vrule['periodType']=periodType
-                        if p.has_key('instruction'):
+                        if 'instruction' in p:
                             vrule['instruction']=m.expand(p['instruction'])
                         else:
                             vrule['instruction']=vrule['description']
-                    if stats.has_key(ruleid):
+                    if ruleid in stats:
                         stats[ruleid]=stats[ruleid]+1
                     else:
                         stats[ruleid]=1
@@ -298,7 +298,7 @@ def main():
           " data elements, by meta rules:")
     for p in rulePatterns:
         ruleid=p['id']
-        if stats.has_key(ruleid):
+        if ruleid in stats:
             print('\t'+ruleid+':\t'+str(stats[ruleid])+' rules generated')
         else:
             print('\t'+ruleid+':\tno rules generated')
