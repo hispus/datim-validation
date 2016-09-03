@@ -86,19 +86,24 @@ def getObj(dhis2type,arg):
         cache[id]=jsonout
         return jsonout
 
+def addRuleSignature(ls,op,rs):
+    ruleSignatures.append([ls,op,rs])
+    if op == 'greater_than_or_equal_to':
+        ruleSignatures.append([rs,'less_than_or_equal_to',ls])
 
 def setup():
     global defaultCOCid
-    allDataElements = getAll('dataElements',"id,name,shortName,categoryCombo,categoryOptionCombos,description,dataSets")
+    allDataElements = getAll('dataElements',"id,name,shortName,categoryCombo[id,categoryOptionCombos[id,name]],description,dataSets")
     allValidationRules = getAll('validationRules',"id,name,rightSide[expression,dataElements],leftSide[expression,dataElements],operator")
     defaultCOCid = findAll('categoryOptionCombos','name:eq:default',"id")[0]['id'];
     for rule in allValidationRules:
         try:
             op=rule['operator']
             ls=rule['leftSide']['expression']
-            rs=rule['leftSide']['expression']
-            sig=[ls,op,rs]
-            ruleSignatures.append(sig)
+            rs=rule['rightSide']['expression']
+            addRuleSignature(ls,op,rs)
+            if '.HllvX50cXC0' in ls:
+                addRuleSignature(ls.replace('.HllvX50cXC0',''),op,rs)
             rulesByName[rule['name']]=rule
             validationRules.append(rule)
         except:
@@ -112,11 +117,6 @@ def setup():
             deByName[name] = de
             deByName[shortName] = de
 
-def getDisAggs(element):
-    catcomboref=element['categoryCombo']
-    catcombo=getObj('categoryCombos',catcomboref)
-    return catcombo['categoryOptionCombos']
-
 # Create a dictionary of dataElements by name
 #
 def deName(de):
@@ -124,9 +124,19 @@ def deName(de):
 def deShortName(de):
    return unicode.format(de['shortName'])
 
-def makeElementExpression(elt,missing_value_strategy='NEVER_SKIP'):
+def findDisaggId(elt,disaggName):
+    for coc in elt['categoryCombo']['categoryOptionCombos']:
+        if coc['name'] == disaggName:
+            return coc['id']
+    print('Error: could not find disagg "'+disaggName+'" for data element '+elt['id']+' '+elt['name'])
+    raise Exception("findDisaggId failed.")
+
+def makeElementExpression(elt,disaggName,missing_value_strategy='NEVER_SKIP'):
     eltid=elt['id']
-    expression="#{"+eltid+"}"
+    if disaggName:
+        expression="#{"+eltid+"."+findDisaggId(elt,disaggName)+"}"
+    else:
+        expression="#{"+eltid+"}"
     description='Value of element '+eltid+' ('+elt['name']+')'
     return { 'expression': expression, 
              'description': description,
@@ -134,13 +144,13 @@ def makeElementExpression(elt,missing_value_strategy='NEVER_SKIP'):
              'missingValueStrategy': missing_value_strategy };
         
 
-def makeVRULE(ls,op,rs,mr_name=False,use_name=False,use_description=False):
+def makeVRULE(ls,op,rs,rs_disagg,mr_name=False,use_name=False,use_description=False):
     if op in ('exclusive_pair','complementary_pair'):
         mv_strategy='SKIP_IF_ALL_VALUES_MISSING'
     else:
         mv_strategy='NEVER_SKIP'
-    lse = makeElementExpression(ls,mv_strategy)
-    rse = makeElementExpression(rs,mv_strategy)
+    lse = makeElementExpression(ls,None,mv_strategy)
+    rse = makeElementExpression(rs,rs_disagg,mv_strategy)
     if 'shortName' in ls:
         lname=ls['shortName']
     else:
@@ -157,6 +167,8 @@ def makeVRULE(ls,op,rs,mr_name=False,use_name=False,use_description=False):
         name=use_name
     else:
         name=lname+' '+opname+' '+rname
+        if rs_disagg:
+            name+=' / '+rs_disagg
     if mr_name and debugging:
         name=name+' ('+mr_name+')'
     if use_description:
@@ -179,21 +191,21 @@ rulePatterns = [
      'id': 'MR02'},
     {'source': re.compile('PMTCT_EID_POS_2MO \(N, (.+)\)( TARGET|): Infant Testing'), 
      'op': 'less_than_or_equal_to', 
-     'dest': 'PMTCT_EID (N, \\1, InfantTest)\\2: Infant Testing',
+     'dest': ['PMTCT_EID (N, \\1, InfantTest)\\2: Infant Testing', 'Infant Test within 2 months of birth'],
      'id': 'MR03'},
     {'source': re.compile('PMTCT_EID_POS_12MO \(N, (.+)\)( TARGET|): Infant Testing'), 
      'op': 'less_than_or_equal_to', 
-     'dest': 'PMTCT_EID (N, \\1, InfantTest)\\2: Infant Testing',
+     'dest': ['PMTCT_EID (N, \\1, InfantTest)\\2: Infant Testing', 'Infant Test (first)  between 2 and 12'],
      'id': 'MR04'},
-    {'source': re.compile('(.+) \(N,\s*(\S+),\s*([^,)]+)\)( TARGET|): (.+)'), 
+    {'source': re.compile('(.+) \((.),\s*(\S+),\s*([^,)]+)\)( TARGET|): (.+)'), 
      'op': 'less_than_or_equal_to', 
-     'dest': '\\1 (N, \\2)\\4: \\5',
-     'name': 'Total > disagg for \\1 \\4',
+     'dest': '\\1 (\\2, \\3)\\5: \\6',
+     'name': 'Total > disagg for \\1 (\\2, \\3, \\4)',
      'id': 'MR05'},
     {'source': re.compile('(.+) \(N,\s+([^,)]+)\)( TARGET|): (.+)'), 
      'op': 'less_than_or_equal_to', 
      'dest': '\\1 (D, \\2)\\3',
-     'name': 'Numerator > Denominator for \\1 (\\2) \\3',
+     'name': 'Numerator > Denominator for \\1 (\\2)\\3',
      'id': 'MR06'},
     {'source': re.compile('(.+) \((N|D), (.+), Age/Sex(/Result|)\)( TARGET|): (.+)'), 
      'op': 'exclusive_pair', 
@@ -246,7 +258,12 @@ def main():
                     ruleType=p['ruletype']
                 m = p['source'].match(eltName)
                 if m:
-                    destName = m.expand(p['dest'])
+                    if type(p['dest']) is list:
+                        destName = m.expand(p['dest'][0])
+                        destDisaggName = p['dest'][1]
+                    else:
+                        destName = m.expand(p['dest'])
+                        destDisaggName = ''
                     dest = deByName.get(destName, None)
                     if 'description' in p:
                         use_description=m.expand(p['description'])
@@ -258,11 +275,15 @@ def main():
                         use_name = False
                     vrule = False
                     if dest is not None:
-                        print(ruleid+'\t'+de['name'] + ' (' + de['id'] + ')' + '\t:' + p['op'] + ':\t' + dest['name'] + ' (' + dest['id'] + ') based on ' + destName)
+                        if destDisaggName:
+                            showDisagg = ' / ' + destDisaggName
+                        else:
+                            showDisagg = ''
+                        print(ruleid+'\t'+de['name'] + ' (' + de['id'] + ')' + '\t:' + p['op'] + ':\t' + dest['name'] + ' (' + dest['id'] + ')' + showDisagg + ' based on ' + destName)
                     else:
                         print(ruleid+'\t'+de['name'] + '(' + de['id'] + ')' + '\t:' + p['op'] + ':\t' + destName + '\t' + 'NOT FOUND')
                     if dest:
-                        vrule=makeVRULE(dataElement,p['op'],dest,ruleid,use_name,use_description)
+                        vrule=makeVRULE(dataElement,p['op'],dest,destDisaggName,ruleid,use_name,use_description)
                     if vrule:
                         vrule['importance']=importance
                         vrule['ruleType']=ruleType
@@ -283,9 +304,9 @@ def main():
         else:
             print('?? '+eltName)
     for rule in newRules:
-        sig=(rule['leftSide']['expression'],
+        sig=[rule['leftSide']['expression'],
              rule['operator'],
-             rule['rightSide']['expression'])
+             rule['rightSide']['expression']]
         if sig not in ruleSignatures:
             if rule['name'] not in rulesByName:
                 addedRules.append(rule)
