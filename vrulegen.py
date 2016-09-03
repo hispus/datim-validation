@@ -200,7 +200,7 @@ rulePatterns = [
     {'source': re.compile('(.+) \((.),\s*(\S+),\s*([^,)]+)\)( TARGET|): (.+)'), 
      'op': 'less_than_or_equal_to', 
      'dest': '\\1 (\\2, \\3)\\5: \\6',
-     'name': 'Total > disagg for \\1 (\\2, \\3, \\4)',
+     'name': 'Total > disagg for \\1 (\\2, \\3, \\4)\\5',
      'id': 'MR05'},
     {'source': re.compile('(.+) \(N,\s+([^,)]+)\)( TARGET|): (.+)'), 
      'op': 'less_than_or_equal_to', 
