@@ -86,11 +86,6 @@ def getObj(dhis2type,arg):
         cache[id]=jsonout
         return jsonout
 
-def addRuleSignature(ls,op,rs):
-    ruleSignatures.append([ls,op,rs])
-    if op == 'greater_than_or_equal_to':
-        ruleSignatures.append([rs,'less_than_or_equal_to',ls])
-
 def setup():
     global defaultCOCid
     allDataElements = getAll('dataElements',"id,name,shortName,categoryCombo[id,categoryOptionCombos[id,name]],description,dataSets")
@@ -99,11 +94,11 @@ def setup():
     for rule in allValidationRules:
         try:
             op=rule['operator']
-            ls=rule['leftSide']['expression']
-            rs=rule['rightSide']['expression']
-            addRuleSignature(ls,op,rs)
-            if '.HllvX50cXC0' in ls:
-                addRuleSignature(ls.replace('.HllvX50cXC0',''),op,rs)
+            ls=rule['leftSide']['dataElements']
+            rs=rule['rightSide']['dataElements']
+            ruleSignatures.append([ls,op,rs])
+            if op == 'greater_than_or_equal_to':
+                ruleSignatures.append([rs,'less_than_or_equal_to',ls])
             rulesByName[rule['name']]=rule
             validationRules.append(rule)
         except:
@@ -197,15 +192,20 @@ rulePatterns = [
      'op': 'less_than_or_equal_to', 
      'dest': ['PMTCT_EID (N, \\1, InfantTest)\\2: Infant Testing', 'Infant Test (first)  between 2 and 12'],
      'id': 'MR04'},
+    {'source': re.compile('(.+) \((.),\s*(\S+),\s*([^,)]+)\)( TARGET|): Number Registered'), 
+     'op': 'less_than_or_equal_to', 
+     'dest': '\\1 (\\2, \\3)\\5: New/Relapsed TB with HIV',
+     'name': '\\1 (\\2, \\3, \\4)\\5 <= Total',
+     'id': 'MR05'},
     {'source': re.compile('(.+) \((.),\s*(\S+),\s*([^,)]+)\)( TARGET|): (.+)'), 
      'op': 'less_than_or_equal_to', 
      'dest': '\\1 (\\2, \\3)\\5: \\6',
-     'name': 'Total > disagg for \\1 (\\2, \\3, \\4)\\5',
+     'name': '\\1 (\\2, \\3, \\4)\\5 <= Total',
      'id': 'MR05'},
     {'source': re.compile('(.+) \(N,\s+([^,)]+)\)( TARGET|): (.+)'), 
      'op': 'less_than_or_equal_to', 
      'dest': '\\1 (D, \\2)\\3',
-     'name': 'Numerator > Denominator for \\1 (\\2)\\3',
+     'name': '\\1 (N, \\2)\\3 <= Denominator',
      'id': 'MR06'},
     {'source': re.compile('(.+) \((N|D), (.+), Age/Sex(/Result|)\)( TARGET|): (.+)'), 
      'op': 'exclusive_pair', 
@@ -304,16 +304,16 @@ def main():
         else:
             print('?? '+eltName)
     for rule in newRules:
-        sig=[rule['leftSide']['expression'],
+        sig=[rule['leftSide']['dataElements'],
              rule['operator'],
-             rule['rightSide']['expression']]
+             rule['rightSide']['dataElements']]
         if sig not in ruleSignatures:
             if rule['name'] not in rulesByName:
                 addedRules.append(rule)
             else:
                 print('Rule name conflict despite unique sig '+str(sig)+'\n\t'+rule['name']+'\n\t'+str(rulesByName[rule['name']]))
     print('Adding '+str(len(addedRules))+'/'+str(len(newRules))+' validation rules to '+
-          str(len(ruleSignatures))+" current rules based on "+
+          str(len(rulesByName))+" current rules based on "+
           str(len(matchedElements))+"/"+str(len(processedElements))+
           "/"+str(len(dataElements))+
           " data elements, by meta rules:")
