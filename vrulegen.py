@@ -5,6 +5,8 @@ import collections
 import os
 import re
 import requests
+import random
+import string
 
 global server_root, server_auth, defaultCOCid, config
 
@@ -15,13 +17,24 @@ object_caches={}
 debugging=False
 
 defaultCOCid = False
+deliveryPoints = []
 dataElements = []
 validationRules = []
 rulesByName = {}
 ruleSignatures = []
+ruleExpressionSignatures = []
+newRules = []
 
 deByName = {}
 deByShortName = {}
+
+random.seed()
+
+def makeUid():
+    uid = random.choice(string.ascii_letters)
+    for i in range(0, 10):
+        uid += random.choice(string.ascii_letters+'0123456789')
+    return uid
 
 def loadConfig(file="default_config.json"):
     global server_root, server_auth, config
@@ -86,19 +99,36 @@ def getObj(dhis2type,arg):
         cache[id]=jsonout
         return jsonout
 
+def getDeliveryPoints():
+    global deliveryPoints
+    serviceDeliveryPointCategories = findAll('categories','name:eq:Service Delivery Point',"categoryOptions[id,name,categoryOptionCombos[id,name,categoryOptionCombos[id,name]]")
+    for servicePoint in serviceDeliveryPointCategories[0]['categoryOptions']:
+        for combo in servicePoint['categoryOptionCombos']:
+            if 'Positive' in combo['name']:
+                positive = combo['id']
+            elif 'Negative' in combo['name']:
+                negative = combo['id']
+            else:
+                all = combo['id']
+        deliveryPoints.append({'name': servicePoint['name'], 'positive': positive, 'negative': negative, 'all': all})
+
 def setup():
     global defaultCOCid
     allDataElements = getAll('dataElements',"id,name,shortName,categoryCombo[id,categoryOptionCombos[id,name]],description,dataSets")
     allValidationRules = getAll('validationRules',"id,name,rightSide[expression,dataElements],leftSide[expression,dataElements],operator")
-    defaultCOCid = findAll('categoryOptionCombos','name:eq:default',"id")[0]['id'];
+    defaultCOCid = findAll('categoryOptionCombos','name:eq:default',"id")[0]['id']
+#    getDeliveryPoints()
     for rule in allValidationRules:
         try:
             op=rule['operator']
-            ls=rule['leftSide']['dataElements']
-            rs=rule['rightSide']['dataElements']
+            ls=rule['leftSide']['dataElements'][0]['id']
+            rs=rule['rightSide']['dataElements'][0]['id']
+            lsx=rule['leftSide']['expression']
+            rsx=rule['rightSide']['expression']
             ruleSignatures.append([ls,op,rs])
             if op == 'greater_than_or_equal_to':
                 ruleSignatures.append([rs,'less_than_or_equal_to',ls])
+            ruleExpressionSignatures.append([lsx,op,rsx])
             rulesByName[rule['name']]=rule
             validationRules.append(rule)
         except:
@@ -126,26 +156,32 @@ def findDisaggId(elt,disaggName):
     print('Error: could not find disagg "'+disaggName+'" for data element '+elt['id']+' '+elt['name'])
     raise Exception("findDisaggId failed.")
 
-def makeElementExpression(elt,disaggName,missing_value_strategy='NEVER_SKIP'):
+def makeElementExpression(elt,disaggs,missing_value_strategy='NEVER_SKIP'):
     eltid=elt['id']
-    if disaggName:
-        expression="#{"+eltid+"."+findDisaggId(elt,disaggName)+"}"
+    disaggDesc=''
+    if disaggs:
+        expression=''
+        for disagg in disaggs:
+            if expression:
+                expression+='+'
+                disaggDesc+=' +'
+            expression+="#{"+eltid+"."+disagg['id']+"}"
+            disaggDesc+=' '+disagg['name']
     else:
         expression="#{"+eltid+"}"
-    description='Value of element '+eltid+' ('+elt['name']+')'
+    description='Value of element '+eltid+' ('+elt['name']+')'+disaggDesc
     return { 'expression': expression, 
              'description': description,
              'dataElements': [ { 'id': eltid } ],
              'missingValueStrategy': missing_value_strategy };
-        
 
-def makeVRULE(ls,op,rs,rs_disagg,mr_name=False,use_name=False,use_description=False):
+def makeVRULE(ls,op,rs,lsDisaggs,rsDisaggs,mr_name,use_name,use_description,importance,ruleType,periodType,instruction):
     if op in ('exclusive_pair','complementary_pair'):
         mv_strategy='SKIP_IF_ALL_VALUES_MISSING'
     else:
         mv_strategy='NEVER_SKIP'
-    lse = makeElementExpression(ls,None,mv_strategy)
-    rse = makeElementExpression(rs,rs_disagg,mv_strategy)
+    lse = makeElementExpression(ls,lsDisaggs,mv_strategy)
+    rse = makeElementExpression(rs,rsDisaggs,mv_strategy)
     if 'shortName' in ls:
         lname=ls['shortName']
     else:
@@ -162,16 +198,33 @@ def makeVRULE(ls,op,rs,rs_disagg,mr_name=False,use_name=False,use_description=Fa
         name=use_name
     else:
         name=lname+' '+opname+' '+rname
-        if rs_disagg:
-            name+=' / '+rs_disagg
     if mr_name and debugging:
         name=name+' ('+mr_name+')'
     if use_description:
         description=use_description
     else:
         description=name
+    if not instruction:
+        instruction=description
     return {'leftSide': lse, 'rightSide': rse, 'operator': op,
-            'name': name, 'description': description}
+            'name': name, 'description': description, 'importance': importance,
+            'ruleType': ruleType, 'periodType': periodType, 'instruction': instruction, 'id': makeUid()}
+
+def makeServiceDeliveryPointsRules(ls,op,rs,importance,ruleType,periodType):
+    global deliveryPoints, ruleExpressionSignatures, newRules
+    for point in deliveryPoints:
+        lsDisaggs=[{'name': 'Positive', 'id': point['positive']}, {'name': 'Negative', 'id': point['negative']}]
+        rsDisaggs=[{'name': 'All', 'id': point['all']}]
+        ruleName=ls['name']+', '+point['name']+', Positive + Negative <= All'
+        vrule = makeVRULE(ls,op,rs,lsDisaggs,rsDisaggs,None,ruleName,ruleName,importance,ruleType,periodType,ruleName)
+        sigx=[vrule['leftSide']['expression'],
+              vrule['operator'],
+              vrule['rightSide']['expression']]
+        if sigx not in ruleExpressionSignatures:
+            if vrule['name'] not in rulesByName:
+                newRules.append(vrule)
+            else:
+                print('Service Delivery Point Rule name conflict despite unique sigx '+str(sigx)+'\n\t'+rule['name']+'\n\t'+str(rulesByName[rule['name']]))
 
 # Define the patterns for creating validation rules based on data element naming convention
 #
@@ -195,35 +248,121 @@ rulePatterns = [
     {'source': re.compile('(.+) \((.),\s*(\S+),\s*([^,)]+)\)( TARGET|): Number Registered'), 
      'op': 'less_than_or_equal_to', 
      'dest': '\\1 (\\2, \\3)\\5: New/Relapsed TB with HIV',
-     'name': '\\1 (\\2, \\3, \\4)\\5 <= Total',
+     'name': '\\1 (\\2, \\3, \\4)\\5: Number Registered <= Total',
      'id': 'MR05'},
+    {'source': re.compile('(.+) \((.),\s*(\S+),\s*([^,)]+)\)( TARGET|): 12 Months Viral Load'), 
+     'op': 'less_than_or_equal_to', 
+     'dest': '\\1 (\\2, \\3)\\5: 12 Months Prior',
+     'name': '\\1 (\\2, \\3, \\4)\\5: 12 Months Viral Load <= Total',
+     'id': 'MR06'},
+    {'source': re.compile('(.+) \((.),\s*(\S+),\s*([^,)]+)\)( TARGET|): 12 Months Viral Load < 1000'), 
+     'op': 'less_than_or_equal_to', 
+     'dest': '\\1 (\\2, \\3)\\5: 12 Months Prior',
+     'name': '\\1 (\\2, \\3, \\4)\\5: 12 Months Viral Load < 1000 <= Total',
+     'id': 'MR07'},
+    {'source': re.compile('(.+) \((.),\s*(\S+),\s*([^,)]+)\)( TARGET|): Key Pop Preventive'), 
+     'op': 'less_than_or_equal_to', 
+     'dest': '\\1 (\\2, \\3)\\5: Estimated Key Pop',
+     'name': '\\1 (\\2, \\3, \\4)\\5: Key Pop Preventive <= Total',
+     'id': 'MR08'},
+    {'source': re.compile('(.+) \((.),\s*(\S+),\s*([^,)]+)\)( TARGET|): Screened Positive TB Symptoms'), 
+     'op': 'less_than_or_equal_to', 
+     'dest': '\\1 (\\2, \\3)\\5: PLHIV Screened',
+     'name': '\\1 (\\2, \\3, \\4)\\5: Screened Positive TB Symptoms <= Total',
+     'id': 'MR09'},
+    {'source': re.compile('(.+) \((.),\s*(\S+), Specimen Sent\)( TARGET|): Specimens Sent'), 
+     'op': 'less_than_or_equal_to', 
+     'dest': '\\1 (\\2, Screened Positive)\\4: Screened Positive TB Symptoms',
+     'name': '\\1 (\\2, \\3, Specimen Sent)\\4: Specimens Sent <= Screened Positive',
+     'id': 'MR10'},
+    {'source': re.compile('(.+) \((.),\s*(\S+), TB Test Type\)( TARGET|): Specimens Sent'), 
+     'op': 'less_than_or_equal_to', 
+     'dest': '\\1 (\\2, Specimen Sent)\\4: Specimens Sent',
+     'name': '\\1 (\\2, \\3, TB Test Type)\\4: Specimens Sent <= Specimens Sent',
+     'id': 'MR11'},
+    {'source': re.compile('(.+) \((.),\s*(\S+),\s*([^,)]+)\)( TARGET|): HTC result positive'), 
+     'op': 'less_than_or_equal_to', 
+     'dest': '\\1 (\\2, \\3)\\5: HTC received results',
+     'name': '\\1 (\\2, \\3, \\4)\\5: HTC result positive <= Total',
+     'id': 'MR12'},
+    {'source': re.compile('(.+) \((.),\s*(\S+),\s*([^,)]+)\)( TARGET|): Active Beneficiaries'), 
+     'op': 'less_than_or_equal_to', 
+     'dest': '\\1 (\\2, \\3)\\5: Beneficiaries Served',
+     'name': '\\1 (\\2, \\3, \\4)\\5: Active Beneficiaries <= Total',
+     'id': 'MR013'},
+    {'source': re.compile('(.+) \((.),\s*(\S+),\s*([^,)]+)\)( TARGET|): Known Results'), 
+     'op': 'less_than_or_equal_to', 
+     'dest': '\\1 (\\2, \\3)\\5: New ANC and L&D clients',
+     'name': '\\1 (\\2, \\3, \\4)\\5: Known Results <= Total',
+     'id': 'MR14'},
+    {'source': re.compile('(.+) \((.),\s*(\S+),\s*([^,)]+)\)( TARGET|): HIV Prevention Program'), 
+     'op': 'less_than_or_equal_to', 
+     'dest': '\\1 (\\2, \\3)\\5: New on ART',
+     'name': '\\1 (\\2, \\3, \\4)\\5: HIV Prevention Program <= Total',
+     'id': 'MR15'},
+    {'source': re.compile('(.+) \((.),\s*(\S+),\s*([^,)]+)\)( TARGET|): Number Positive'), 
+     'op': 'less_than_or_equal_to', 
+     'dest': '\\1 (\\2, \\3)\\5: TB/HIV on ART',
+     'name': '\\1 (\\2, \\3, \\4)\\5: Number Positive <= Total',
+     'id': 'MR16'},
+    {'source': re.compile('(.+) \((.),\s*(\S+),\s*([^,)]+)\)( TARGET|): Alive at 12 mo. after initiating ART'), 
+     'op': 'less_than_or_equal_to', 
+     'dest': '\\1 (\\2, \\3)\\5: Total Initiated ART in 12 mo.',
+     'name': '\\1 (\\2, \\3, \\4)\\5: Alive at 12 mo. after initiating ART <= Total',
+     'id': 'MR17'},
+    {'source': re.compile('(.+) \((.),\s*(\S+),\s*(\S+)\)( TARGET|): Received PrEP'), 
+     'op': 'less_than_or_equal_to', 
+     'dest': '\\1 (\\2, \\3)\\5: Newly Enrolled PrEP',
+     'name': '\\1 (\\2, \\3)\\5: Received PrEP <= Total',
+     'id': 'MR18'},
+    {'source': re.compile('GEND_GBV_PEP \((.),\s*(\S+)\)( TARGET|): GBV PEP'), 
+     'op': 'less_than_or_equal_to', 
+     'dest': 'GEND_GBV (\\1, \\2)\\3: GBV Care',
+     'name': 'GEND_GBV_PEP (\\1, \\2)\\3: GBV PEP <= Total',
+     'id': 'MR19'},
     {'source': re.compile('(.+) \((.),\s*(\S+),\s*([^,)]+)\)( TARGET|): (.+)'), 
      'op': 'less_than_or_equal_to', 
      'dest': '\\1 (\\2, \\3)\\5: \\6',
-     'name': '\\1 (\\2, \\3, \\4)\\5 <= Total',
-     'id': 'MR05'},
+     'name': '\\1 (\\2, \\3, \\4)\\5: \\6 <= Total',
+     'id': 'MR20'},
     {'source': re.compile('(.+) \(N,\s+([^,)]+)\)( TARGET|): (.+)'), 
      'op': 'less_than_or_equal_to', 
-     'dest': '\\1 (D, \\2)\\3',
-     'name': '\\1 (N, \\2)\\3 <= Denominator',
-     'id': 'MR06'},
+     'dest': '\\1 (D, \\2)\\3:',
+     'name': '\\1 (N, \\2)\\3: \\4 <= Denominator',
+     'id': 'MR21'},
+    {'source': re.compile('(.+) \((N|D), (.+), Age(/Result|)\)( TARGET|): (.+)'), 
+     'op': 'exclusive_pair', 
+     'dest': '\\1 (\\2, \\3, Age Aggregated\\4)\\5: \\6',
+     'id': 'MR22'},
     {'source': re.compile('(.+) \((N|D), (.+), Age/Sex(/Result|)\)( TARGET|): (.+)'), 
      'op': 'exclusive_pair', 
-     'dest': '\\1 (\\2, \\3, Age/Sex Aggregated\\4)\\6',
-     'id': 'MR07'},
+     'dest': '\\1 (\\2, \\3, Age/Sex Aggregated\\4)\\5: \\6',
+     'id': 'MR23'},
     {'source': re.compile('(.+) \((N|D), (.+), Age/Sex(/Result)\)( TARGET|): (.+)'), 
      'op': 'exclusive_pair', 
-     'dest': '\\1 (\\2, \\3, Age/Sex Aggregated\\4)\\6',
-     'id': 'MR08'},
+     'dest': '\\1 (\\2, \\3, Age/Sex Aggregated\\4)\\5: \\6',
+     'id': 'MR24'},
     {'source': re.compile('(.+) \((N|D), (.+), (AgeLessThanTen|AgeAboveTen/Sex)(/Positive|)\)( TARGET|): (.+)'), 
      'op': 'exclusive_pair', 
-     'dest': '\\1 (\\2, \\3, Aggregated Age/Sex\\5)\\6',
-     'id': 'MR09'},
+     'dest': '\\1 (\\2, \\3, Aggregated Age/Sex\\5)\\6: \\7',
+     'id': 'MR25'},
     {'source': re.compile('(.+) \((N|D), (.+), (AgeLessThanTen|AgeAboveTen/Sex)(/Positive)\)( TARGET|): (.+)'), 
      'op': 'exclusive_pair', 
-     'dest': '\\1 (\\2, \\3, Age/Sex Aggregated/Result)\\6',
-     'id': 'MR10'}
+     'dest': '\\1 (\\2, \\3, Age/Sex Aggregated/Result)\\6: \\7',
+     'id': 'MR26'},
+    {'source': re.compile('(.+) \((N|D), (.+), ServiceDeliveryPoint/Result\)( TARGET|): (.+)'), 
+     'op': 'less_than_or_equal_to', 
+     'dest': '\\1 (\\2, \\3, ServiceDeliveryPoint)\\4: \\5',
+     'special': 'serviceDeliveryPoint',
+     'id': 'MR27'}
     ]
+
+def getDeStartingWith(destName):
+    for key in deByName.keys():
+        if len(key) >= len(destName) and key[:len(destName)] == destName:
+            return deByName.get(key)
+    return None
+
 
 # Loop through the data elements and create any needed validation rules
 #
@@ -232,7 +371,6 @@ def main():
     loadConfig("default_config.json")
     sortedDataElements = sorted(dataElements, key=deName)
     stats={}
-    newRules = []
     addedRules = []
     processedElements=[]
     matchedElements=[]
@@ -264,7 +402,7 @@ def main():
                     else:
                         destName = m.expand(p['dest'])
                         destDisaggName = ''
-                    dest = deByName.get(destName, None)
+                    dest = getDeStartingWith(destName)
                     if 'description' in p:
                         use_description=m.expand(p['description'])
                     else:
@@ -273,25 +411,32 @@ def main():
                         use_name=m.expand(p['name'])
                     else:
                         use_name = False
+                    if 'instruction' in p:
+                        instruction=m.expand(p['instruction'])
+                    else:
+                        instruction=use_description
                     vrule = False
-                    if dest is not None:
+                    if dest:
                         if destDisaggName:
-                            showDisagg = ' / ' + destDisaggName
+                            destDisaggs=[{'name': destDisaggName, 'id': findDisaggId(dest,destDisaggName)}]
+                            showDisagg=' / ' + destDisaggName
+                            if not use_name:
+                                use_name=dataElement['shortName']+' '+p['op']+' '+dest['shortName']+' '+destDisaggName
                         else:
-                            showDisagg = ''
+                            destDisaggs=False;
+                            showDisagg=''
                         print(ruleid+'\t'+de['name'] + ' (' + de['id'] + ')' + '\t:' + p['op'] + ':\t' + dest['name'] + ' (' + dest['id'] + ')' + showDisagg + ' based on ' + destName)
                     else:
                         print(ruleid+'\t'+de['name'] + '(' + de['id'] + ')' + '\t:' + p['op'] + ':\t' + destName + '\t' + 'NOT FOUND')
                     if dest:
-                        vrule=makeVRULE(dataElement,p['op'],dest,destDisaggName,ruleid,use_name,use_description)
+                        if 'special' in p and p['special'] == 'serviceDeliveryPoint':
+                            makeServiceDeliveryPointsRules(dataElement,p['op'],dest,importance,ruleType,periodType)
+                        else:
+                            vrule=makeVRULE(dataElement,p['op'],dest,None,destDisaggs,None,use_name,use_description,importance,ruleType,periodType,instruction)
                     if vrule:
                         vrule['importance']=importance
                         vrule['ruleType']=ruleType
                         vrule['periodType']=periodType
-                        if 'instruction' in p:
-                            vrule['instruction']=m.expand(p['instruction'])
-                        else:
-                            vrule['instruction']=vrule['description']
                     if ruleid in stats:
                         stats[ruleid]=stats[ruleid]+1
                     else:
@@ -304,9 +449,9 @@ def main():
         else:
             print('?? '+eltName)
     for rule in newRules:
-        sig=[rule['leftSide']['dataElements'],
+        sig=[rule['leftSide']['dataElements'][0]['id'],
              rule['operator'],
-             rule['rightSide']['dataElements']]
+             rule['rightSide']['dataElements'][0]['id']]
         if sig not in ruleSignatures:
             if rule['name'] not in rulesByName:
                 addedRules.append(rule)
