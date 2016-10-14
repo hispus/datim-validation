@@ -17,13 +17,14 @@ object_caches={}
 debugging=False
 
 defaultCOCid = False
-deliveryPoints = []
+deliveryPoints = {}
 dataElements = []
 validationRules = []
 rulesByName = {}
 ruleSignatures = []
 ruleExpressionSignatures = []
 newRules = []
+addedRules = []
 
 deByName = {}
 deByShortName = {}
@@ -110,14 +111,18 @@ def getDeliveryPoints():
                 negative = combo['id']
             else:
                 all = combo['id']
-        deliveryPoints.append({'name': servicePoint['name'], 'positive': positive, 'negative': negative, 'all': all})
+        deliveryPoints[servicePoint['name']] = {'positive': positive, 'negative': negative}
+    deliveryPointCategoryCombos = findAll('dataElements','name:eq:HTC_TST (N, DSD, ServiceDeliveryPoint): HTC received results',"categoryCombo[:all]")
+    for optionCombo in deliveryPointCategoryCombos[0]['categoryCombo']['categoryOptionCombos']:
+        deliveryPoints[optionCombo['name']]['all'] = optionCombo['id']
+    print(deliveryPoints)
 
 def setup():
     global defaultCOCid
     allDataElements = getAll('dataElements',"id,name,shortName,categoryCombo[id,categoryOptionCombos[id,name]],description,dataSets")
     allValidationRules = getAll('validationRules',"id,name,rightSide[expression,dataElements],leftSide[expression,dataElements],operator")
     defaultCOCid = findAll('categoryOptionCombos','name:eq:default',"id")[0]['id']
-#    getDeliveryPoints()
+    getDeliveryPoints()
     for rule in allValidationRules:
         try:
             op=rule['operator']
@@ -211,20 +216,24 @@ def makeVRULE(ls,op,rs,lsDisaggs,rsDisaggs,mr_name,use_name,use_description,impo
             'ruleType': ruleType, 'periodType': periodType, 'instruction': instruction, 'id': makeUid()}
 
 def makeServiceDeliveryPointsRules(ls,op,rs,importance,ruleType,periodType):
-    global deliveryPoints, ruleExpressionSignatures, newRules
-    for point in deliveryPoints:
+    global deliveryPoints, ruleExpressionSignatures, addedRules
+    for key in deliveryPoints:
+        point = deliveryPoints[key]
         lsDisaggs=[{'name': 'Positive', 'id': point['positive']}, {'name': 'Negative', 'id': point['negative']}]
         rsDisaggs=[{'name': 'All', 'id': point['all']}]
-        ruleName=ls['name']+', '+point['name']+', Positive + Negative <= All'
+        ruleName=ls['name']+', '+key+', Positive + Negative <= All'
         vrule = makeVRULE(ls,op,rs,lsDisaggs,rsDisaggs,None,ruleName,ruleName,importance,ruleType,periodType,ruleName)
         sigx=[vrule['leftSide']['expression'],
               vrule['operator'],
               vrule['rightSide']['expression']]
         if sigx not in ruleExpressionSignatures:
             if vrule['name'] not in rulesByName:
-                newRules.append(vrule)
+                addedRules.append(vrule)
             else:
                 print('Service Delivery Point Rule name conflict despite unique sigx '+str(sigx)+'\n\t'+rule['name']+'\n\t'+str(rulesByName[rule['name']]))
+        else:
+            print('Rule expression exists for rule:')
+            print(vrule)
 
 # Define the patterns for creating validation rules based on data element naming convention
 #
@@ -382,11 +391,10 @@ def getDeStartingWith(destName):
 # Loop through the data elements and create any needed validation rules
 #
 def main():
-    global server_root, server_auth, defaultCOCid, dataElements, validationRules, config
+    global server_root, server_auth, defaultCOCid, dataElements, validationRules, config, addedRules
     loadConfig("default_config.json")
     sortedDataElements = sorted(dataElements, key=deName)
     stats={}
-    addedRules = []
     processedElements=[]
     matchedElements=[]
     for dataElement in sortedDataElements:
