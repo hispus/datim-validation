@@ -112,10 +112,9 @@ def getDeliveryPoints():
             else:
                 all = combo['id']
         deliveryPoints[servicePoint['name']] = {'positive': positive, 'negative': negative}
-    deliveryPointCategoryCombos = findAll('dataElements','name:eq:HTC_TST (N, DSD, ServiceDeliveryPoint): HTC received results',"categoryCombo[:all]")
+    deliveryPointCategoryCombos = findAll('dataElements','name:eq:HTC_TST (N, DSD, ServiceDeliveryPoint): HTC received results',"categoryCombo[categoryOptionCombos[id,name]]")
     for optionCombo in deliveryPointCategoryCombos[0]['categoryCombo']['categoryOptionCombos']:
         deliveryPoints[optionCombo['name']]['all'] = optionCombo['id']
-    print(deliveryPoints)
 
 def setup():
     global defaultCOCid
@@ -230,7 +229,7 @@ def makeServiceDeliveryPointsRules(ls,op,rs,importance,ruleType,periodType):
             if vrule['name'] not in rulesByName:
                 addedRules.append(vrule)
             else:
-                print('Service Delivery Point Rule name conflict despite unique sigx '+str(sigx)+'\n\t'+rule['name']+'\n\t'+str(rulesByName[rule['name']]))
+                print('Service Delivery Point Rule name conflict despite unique sigx '+str(sigx)+'\n\t'+ruleName+'\n\t'+str(rulesByName[ruleName]))
         else:
             print('Rule expression exists for rule:')
             print(vrule)
@@ -333,6 +332,7 @@ rulePatterns = [
      'op': 'less_than_or_equal_to',
      'dest': '\\1 (\\2, \\3)\\5: \\7',
      'name': '\\1 (\\2, \\3, \\4)\\5\\6: \\7 <= Total',
+     'except': re.compile('OVC_SERV \(N, .*, Age/Sex/Service'),
      'id': 'MR20'},
     {'source': re.compile('(.+) \(([^,)]+)\)( TARGET|)( v\d+|)(: .+|)'),
      'op': 'less_than_or_equal_to',
@@ -378,7 +378,19 @@ rulePatterns = [
      'op': 'less_than_or_equal_to',
      'dest': '\\1 (\\2, \\3, ServiceDeliveryPoint)\\4: \\5',
      'special': 'serviceDeliveryPoint',
-     'id': 'MR30'}
+     'id': 'MR30'},
+    {'source': re.compile('GEND_GBV \(N, (.+), PEP\)( TARGET|): GBV Care'),
+     'op': 'less_than_or_equal_to',
+     'dest': 'GEND_GBV (N, \\1, Age/Sex/ViolenceType)\\2: GBV Care',
+     'id': 'MR31'},
+    {'source': re.compile('OVC_HIVSTAT \(N, (.+), StatusPosART\)( TARGET|): OVC Disclosed Known HIV Status'),
+     'op': 'less_than_or_equal_to',
+     'dest': ['OVC_HIVSTAT (N, \\1, ReportedStatus)\\2: OVC Disclosed Known HIV', 'Positive'],
+     'id': 'MR32'},
+    {'source': re.compile('OVC_HIVSTAT \(N, (.+), StatusNotRep\)( TARGET|): OVC Disclosed Known HIV Status'),
+     'op': 'less_than_or_equal_to',
+     'dest': ['OVC_HIVSTAT (N, \\1, ReportedStatus)\\2: OVC Disclosed Known HIV', 'Undisclosed to IP'],
+     'id': 'MR33'}
     ]
 
 def getDeStartingWith(destName):
@@ -418,7 +430,7 @@ def main():
                 if 'ruletype' in p:
                     ruleType=p['ruletype']
                 m = p['source'].match(eltName)
-                if m:
+                if m and ('except' not in p or not p['except'].match(eltName)):
                     if type(p['dest']) is list:
                         destName = m.expand(p['dest'][0])
                         destDisaggName = p['dest'][1]
@@ -502,6 +514,14 @@ def main():
                             sort_keys=True,indent=4,
                             separators=(',',':')))
     output.close()
+    
+    remove_file='vrules_remove.sh'
+    out_remove=open(remove_file,'w')
+    os.fchmod(out_remove.fileno(), 0o755) # make the script executable
+    deleteCommand='curl -X DELETE -u '+server_auth[0]+':'+server_auth[1]+' "'+server_root+'validationRules/'
+    for r in addedRules:
+        out_remove.write(deleteCommand+r['id']+'"\n')
+    out_remove.close()
 
 if __name__ == "__main__":
     main()
