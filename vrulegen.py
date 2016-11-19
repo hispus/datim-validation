@@ -160,7 +160,7 @@ def findDisaggId(elt,disaggName):
     print('Error: could not find disagg "'+disaggName+'" for data element '+elt['id']+' '+elt['name'])
     raise Exception("findDisaggId failed.")
 
-def makeElementExpression(elt,disaggs,missing_value_strategy='NEVER_SKIP'):
+def makeElementExpression(elt,elt2,disaggs,elementName,missing_value_strategy='NEVER_SKIP'):
     eltid=elt['id']
     disaggDesc=''
     if disaggs:
@@ -173,19 +173,20 @@ def makeElementExpression(elt,disaggs,missing_value_strategy='NEVER_SKIP'):
             disaggDesc+=' '+disagg['name']
     else:
         expression="#{"+eltid+"}"
-    description='Value of element '+eltid+' ('+elt['name']+')'+disaggDesc
+    dataElements = [ { 'id': eltid } ]
+    if elt2:
+        expression+="+#{"+elt2['id']+"}"
+        disaggDesc+=" + "+elt2['name']
+        dataElements.append({ 'id': elt2['id'] })
+    description='Value of element '+eltid+' ' + (elementName or '('+elt['name']+')'+disaggDesc)
     return { 'expression': expression, 
              'description': description,
-             'dataElements': [ { 'id': eltid } ],
-             'missingValueStrategy': missing_value_strategy };
+             'dataElements': dataElements,
+             'missingValueStrategy': missing_value_strategy }
 
-def makeVRULE(ls,op,rs,lsDisaggs,rsDisaggs,mr_name,use_name,use_description,importance,ruleType,periodType,instruction):
-    if op in ('exclusive_pair','complementary_pair'):
-        mv_strategy='SKIP_IF_ALL_VALUES_MISSING'
-    else:
-        mv_strategy='NEVER_SKIP'
-    lse = makeElementExpression(ls,lsDisaggs,mv_strategy)
-    rse = makeElementExpression(rs,rsDisaggs,mv_strategy)
+def makeVRULE(ls,secondSource,op,rs,lsDisaggs,rsDisaggs,destElementName,mr_name,use_name,use_description,importance,strategy,ruleType,periodType,instruction):
+    lse = makeElementExpression(ls,secondSource,lsDisaggs,None,strategy)
+    rse = makeElementExpression(rs,None,rsDisaggs,destElementName,strategy)
     if 'shortName' in ls:
         lname=ls['shortName']
     else:
@@ -214,14 +215,14 @@ def makeVRULE(ls,op,rs,lsDisaggs,rsDisaggs,mr_name,use_name,use_description,impo
             'name': name, 'description': description, 'importance': importance,
             'ruleType': ruleType, 'periodType': periodType, 'instruction': instruction, 'id': makeUid()}
 
-def makeServiceDeliveryPointsRules(ls,op,rs,importance,ruleType,periodType):
+def makeServiceDeliveryPointsRules(ls,secondSource,op,rs,importance,strategy,ruleType,periodType):
     global deliveryPoints, ruleExpressionSignatures, addedRules
     for key in deliveryPoints:
         point = deliveryPoints[key]
         lsDisaggs=[{'name': 'Positive', 'id': point['positive']}, {'name': 'Negative', 'id': point['negative']}]
         rsDisaggs=[{'name': 'All', 'id': point['all']}]
         ruleName=ls['name']+', '+key+', Positive + Negative <= All'
-        vrule = makeVRULE(ls,op,rs,lsDisaggs,rsDisaggs,None,ruleName,ruleName,importance,ruleType,periodType,ruleName)
+        vrule = makeVRULE(ls,secondSource,op,rs,lsDisaggs,rsDisaggs,None,None,ruleName,ruleName,importance,strategy,ruleType,periodType,ruleName)
         sigx=[vrule['leftSide']['expression'],
               vrule['operator'],
               vrule['rightSide']['expression']]
@@ -288,109 +289,168 @@ rulePatterns = [
      'dest': '\\1 (\\2, Specimen Sent)\\4: Specimens Sent',
      'name': '\\1 (\\2, \\3, TB Test Type)\\4: Specimens Sent <= Specimens Sent',
      'id': 'MR11'},
+    {'source': re.compile('GEND_GBV \(N, (\S+), PEP\)( TARGET|): GBV Care'),
+     'op': 'less_than_or_equal_to',
+     'dest': ['GEND_GBV (N, \\1, Age/Sex/ViolenceType)\\2: GBV Care',
+              'Unknown Age, Female, Sexual Violence (Post-Rape Care)',
+              '<10, Female, Sexual Violence (Post-Rape Care)',
+              '10-14, Female, Sexual Violence (Post-Rape Care)',
+              '15-19, Female, Sexual Violence (Post-Rape Care)',
+              '20-24, Female, Sexual Violence (Post-Rape Care)',
+              '25-49, Female, Sexual Violence (Post-Rape Care)',
+              '50+, Female, Sexual Violence (Post-Rape Care)',
+              'Unknown Age, Male, Sexual Violence (Post-Rape Care)',
+              '<10, Male, Sexual Violence (Post-Rape Care)',
+              '10-14, Male, Sexual Violence (Post-Rape Care)',
+              '15-19, Male, Sexual Violence (Post-Rape Care)',
+              '20-24, Male, Sexual Violence (Post-Rape Care)',
+              '25-49, Male, Sexual Violence (Post-Rape Care)',
+              '50+, Male, Sexual Violence (Post-Rape Care)'],
+     'name': 'GEND_GBV (N, \\1, PEP)\\2: GBV Care <= GEND_GBV (N, DSD, Age/Sex/ViolenceType=Sexual Violence)',
+     'destElementName': 'Sum of GEND_GBV (N, \\1, Age/Sex/ViolenceType=Sexual Violence)\\2: GBV Care',
+     'id': 'MR12'},
     {'source': re.compile('(.+) \((.),\s*(\S+),\s*([^,)]+)\)( TARGET|): HTC result positive'),
      'op': 'less_than_or_equal_to',
      'dest': '\\1 (\\2, \\3)\\5: HTC received results',
      'name': '\\1 (\\2, \\3, \\4)\\5: HTC result positive <= Total',
-     'id': 'MR12'},
+     'id': 'MR13'},
     {'source': re.compile('(.+) \((.),\s*(\S+),\s*([^,)]+)\)( TARGET|): Active Beneficiaries'),
      'op': 'less_than_or_equal_to',
      'dest': '\\1 (\\2, \\3)\\5: Beneficiaries Served',
      'name': '\\1 (\\2, \\3, \\4)\\5: Active Beneficiaries <= Total',
-     'id': 'MR13'},
+     'id': 'MR14'},
     {'source': re.compile('(.+) \((.),\s*(\S+),\s*([^,)]+)\)( TARGET|): Known Results'),
      'op': 'less_than_or_equal_to',
      'dest': '\\1 (\\2, \\3)\\5: New ANC and L&D clients',
      'name': '\\1 (\\2, \\3, \\4)\\5: Known Results <= Total',
-     'id': 'MR14'},
+     'id': 'MR15'},
     {'source': re.compile('(.+) \((.),\s*(\S+),\s*([^,)]+)\)( TARGET|): HIV Prevention Program'),
      'op': 'less_than_or_equal_to',
      'dest': '\\1 (\\2, \\3)\\5: New on ART',
      'name': '\\1 (\\2, \\3, \\4)\\5: HIV Prevention Program <= Total',
-     'id': 'MR15'},
+     'id': 'MR16'},
     {'source': re.compile('(.+) \((.),\s*(\S+),\s*([^,)]+)\)( TARGET|): Number Positive'),
      'op': 'less_than_or_equal_to',
      'dest': '\\1 (\\2, \\3)\\5: TB/HIV on ART',
      'name': '\\1 (\\2, \\3, \\4)\\5: Number Positive <= Total',
-     'id': 'MR16'},
+     'id': 'MR17'},
     {'source': re.compile('(.+) \((.),\s*(\S+),\s*([^,)]+)\)( TARGET|): Alive at 12 mo. after initiating ART'),
      'op': 'less_than_or_equal_to',
      'dest': '\\1 (\\2, \\3)\\5: Total Initiated ART in 12 mo.',
      'name': '\\1 (\\2, \\3, \\4)\\5: Alive at 12 mo. after initiating ART <= Total',
-     'id': 'MR17'},
+     'id': 'MR18'},
     {'source': re.compile('(.+) \((.),\s*(\S+),\s*(\S+)\)( TARGET|): Received PrEP'),
      'op': 'less_than_or_equal_to',
      'dest': '\\1 (\\2, \\3)\\5: Newly Enrolled PrEP',
      'name': '\\1 (\\2, \\3)\\5: Received PrEP <= Total',
-     'id': 'MR18'},
+     'id': 'MR19'},
     {'source': re.compile('GEND_GBV_PEP \((.),\s*(\S+)\)( TARGET|): GBV PEP'),
      'op': 'less_than_or_equal_to',
      'dest': 'GEND_GBV (\\1, \\2)\\3: GBV Care',
      'name': 'GEND_GBV_PEP (\\1, \\2)\\3: GBV PEP <= Total',
-     'id': 'MR19'},
+     'id': 'MR20'},
+    {'source': re.compile('TX_RET \(D, (\S+), Aggregated Age/Sex\) v2( TARGET|): Alive at 12 mo. after initiating ART'),
+     'op': 'less_than_or_equal_to',
+     'dest': 'TX_RET (D, \\1)\\2: Total Initiated ART in 12 mo.',
+     'name': 'TX_RET (D, \\1, Aggregated Age/Sex)\\2: Alive at 12 mo. after initiating ART <= Total',
+     'id': 'MR21'},
     {'source': re.compile('(.+) \((.),\s*(\S+),\s*([^,)]+)\)( TARGET|)( v\d+|): (.+|)'),
+     'secondSource': { 'match': 'AgeLessThanTen', 'replace': 'AgeAboveTen/Sex' },
      'op': 'less_than_or_equal_to',
      'dest': '\\1 (\\2, \\3)\\5: \\7',
      'name': '\\1 (\\2, \\3, \\4)\\5\\6: \\7 <= Total',
-     'except': re.compile('OVC_SERV \(N, .*, Age/Sex/Service'),
-     'id': 'MR20'},
+     'redirect': [
+         { 'dest': 'KP_PREV (N, DSD):', 'alt': 'KP_PREV (N, DSD, KeyPop) v2: Key Pop Preventive' },
+         { 'dest': 'KP_PREV (N, TA):', 'alt': 'KP_PREV (N, TA, KeyPop) v2: Key Pop Preventive' },
+         { 'dest': 'OVC_SERV (N, DSD):', 'alt': 'OVC_SERV (N, DSD, ProgramStatus): Beneficiaries Served' },
+         { 'dest': 'OVC_SERV (N, TA):', 'alt': 'OVC_SERV (N, TA, ProgramStatus): Beneficiaries Served' },
+         { 'dest': 'TX_PVLS (N, DSD):', 'alt': 'TX_PVLS (N, DSD, RoutineTargeted) v2: 12 Months Viral Load < 1000' },
+         { 'dest': 'TX_PVLS (N, TA):', 'alt': 'TX_PVLS (N, TA, RoutineTargeted) v2: 12 Months Viral Load < 1000' },
+         { 'dest': 'TX_PVLS (D, DSD):', 'alt': 'TX_PVLS (D, DSD, RoutineTargeted) v2: Viral Load Documented' },
+         { 'dest': 'TX_PVLS (D, TA):', 'alt': 'TX_PVLS (D, TA, RoutineTargeted) v2: Viral Load Documented' }         
+      ],
+     'except': [re.compile('OVC_SERV \(N, .*, Age/Sex/Service'),
+                re.compile('GEND_GBV \(N, DSD, PEP\)'),
+                re.compile('GEND_GBV \(N, TA, PEP\)')],
+     'id': 'MR22'},
+    {'source': re.compile('TB_SCREENDX \((.),\s*(\S+),\s*([^,)]+)\)( TARGET|): (.+|)'),
+     'op': 'less_than_or_equal_to',
+     'dest': 'TB_SCREEN (\\1, \\2)\\4: \\5',
+     'name': 'TB_SCREENDX (\\1, \\2, \\3)\\4: \\5 <= Total',
+     'match': 'exact',
+     'id': 'MR23'},
     {'source': re.compile('(.+) \(([^,)]+)\)( TARGET|)( v\d+|)(: .+|)'),
      'op': 'less_than_or_equal_to',
      'dest': '\\1\\3\\4\\5',
      'name': '\\1 (\\2)\\3\\4\\5 <= Total',
      'match': 'exact',
-     'id': 'MR21'},
+     'id': 'MR24'},
+    {'source': re.compile('PMTCT_FO \(N, (\S+), Outcome\) v2( TARGET|): Final Outcomes Exposed Infants'),
+     'op': 'less_than_or_equal_to',
+     'dest': 'PMTCT_FO (D, \\1)\\2:Exposed Infants',
+     'name': 'PMTCT_FO (N, \\1) v2\\2: Final Outcomes Exposed Infants <= Denominator',
+     'id': 'MR25'},
     {'source': re.compile('PMTCT_ARV_NAT \(N, NAT, NewExistingArt\)( TARGET|): ARVs'),
      'op': 'less_than_or_equal_to',
      'dest': 'PMTCT_ARV_NAT (D, NAT)\\1: ARVs',
      'name': 'PMTCT_ARV_NAT (N, NAT, NewExistingArt)\\1: ARVs <= Denominator',
-     'id': 'MR22'},
+     'id': 'MR26'},
+    {'source': re.compile('KP_PREV \(N, (\S+), KeyPop\) v2( TARGET|): Key Pop Preventive'),
+     'op': 'less_than_or_equal_to',
+     'dest': 'KP_PREV (D, \\1, KeyPop) v2\\2: Key Pop Preventive',
+     'name': 'KP_PREV (N, \\1, KeyPop)\\1: ARVs <= Denominator',
+     'optional': ['KP_PREV'],
+     'id': 'MR27'},
     {'source': re.compile('(.+) \(N,\s+([^,)]+)\)( TARGET|): (.+)'),
      'op': 'less_than_or_equal_to',
      'dest': '\\1 (D, \\2)\\3:',
      'name': '\\1 (N, \\2)\\3: \\4 <= Denominator',
-     'id': 'MR23'},
-    {'source': re.compile('(.+) \((N|D), (.+), Age(/Result|)\)( TARGET|): (.+)'),
+     'redirect': [
+         { 'dest': 'PMTCT_STAT (D, DSD):', 'alt': 'PMTCT_STAT (D, DSD, Age) v2: New ANC clients' },
+         { 'dest': 'PMTCT_STAT (D, TA):', 'alt': 'PMTCT_STAT (D, TA, Age) v2: New ANC clients' },
+         { 'dest': 'OVC_SERV (N, DSD):', 'alt': 'OVC_SERV (N, DSD, ProgramStatus): Beneficiaries Served' },
+         { 'dest': 'OVC_SERV (N, TA):', 'alt': 'OVC_SERV (N, TA, ProgramStatus): Beneficiaries Served' }
+      ],
+     'optional': ['KP_PREV', 'PP_PREV'],
+     'id': 'MR28'},
+    {'source': re.compile('TB_SCREEN \(N, (\S+)\)( TARGET|): PLHIV Screened'),
+     'op': 'less_than_or_equal_to',
+     'dest': 'TB_SCREENDX (D, \\1)\\2: PLHIV Reported Symptoms',
+     'name': 'TB_SCREEN (N, \\1)\\2: PLHIV Screened <= Denominator',
+     'id': 'MR29'},
+    {'source': re.compile('(.+) \((N|D), (.+), Age(/Sex)(/Result|)\)( TARGET|): (.+)'),
      'op': 'exclusive_pair',
-     'dest': '\\1 (\\2, \\3, Age Aggregated\\4)\\5: \\6',
-     'id': 'MR24'},
-    {'source': re.compile('(.+) \((N|D), (.+), Age/Sex(/Result|)\)( TARGET|): (.+)'),
+     'dest': '\\1 (\\2, \\3, Age\\4 Aggregated\\5)\\6: \\7',
+     'id': 'MR30'},
+    {'source': re.compile('(.+) \((N|D), (.+), (.*)/Age/Female(.*)\)( TARGET|): (.+)'),
      'op': 'exclusive_pair',
-     'dest': '\\1 (\\2, \\3, Age/Sex Aggregated\\4)\\5: \\6',
-     'id': 'MR25'},
-    {'source': re.compile('(.+) \((N|D), (.+), Age/Sex(/Result)\)( TARGET|): (.+)'),
+     'dest': '\\1 (\\2, \\3, \\4/Aggregated Age/Female\\5)\\6: \\7',
+     'id': 'MR31'},
+    {'source': re.compile('(.+) \((N|D), (.+), (.*/)(AgeLessThanTen|AgeAboveTen/Sex)(/Result)(/Positive|)\)( TARGET|): (.+)'),
      'op': 'exclusive_pair',
-     'dest': '\\1 (\\2, \\3, Age/Sex Aggregated\\4)\\5: \\6',
-     'id': 'MR26'},
-    {'source': re.compile('(.+) \((N|D), (.+), (AgeLessThanTen|AgeAboveTen/Sex)(/Positive|)\)( TARGET|): (.+)'),
-     'op': 'exclusive_pair',
-     'dest': '\\1 (\\2, \\3, Aggregated Age/Sex\\5)\\6: \\7',
-     'id': 'MR27'},
+     'dest': '\\1 (\\2, \\3, \\4Aggregated Age/Sex\\6)\\7: \\8',
+     'id': 'MR32'},
     {'source': re.compile('(.+) \((N|D), (.+), (AgeLessThanTen|AgeAboveTen/Sex)(/Positive)\)( TARGET|): (.+)'),
      'op': 'exclusive_pair',
      'dest': '\\1 (\\2, \\3, Age/Sex Aggregated/Result)\\6: \\7',
-     'id': 'MR28'},
+     'id': 'MR33'},
     {'source': re.compile('(.+) \(N, NAT, Sex\)( TARGET|): (.+)'),
      'op': 'exclusive_pair',
      'dest': '\\1 (N, NAT, Age/Sex)\\2: \\3',
-     'id': 'MR29'},
+     'id': 'MR34'},
     {'source': re.compile('(.+) \((N|D), (.+), ServiceDeliveryPoint/Result\)( TARGET|): (.+)'),
      'op': 'less_than_or_equal_to',
      'dest': '\\1 (\\2, \\3, ServiceDeliveryPoint)\\4: \\5',
      'special': 'serviceDeliveryPoint',
-     'id': 'MR30'},
-    {'source': re.compile('GEND_GBV \(N, (.+), PEP\)( TARGET|): GBV Care'),
-     'op': 'less_than_or_equal_to',
-     'dest': 'GEND_GBV (N, \\1, Age/Sex/ViolenceType)\\2: GBV Care',
-     'id': 'MR31'},
+     'id': 'MR35'},
     {'source': re.compile('OVC_HIVSTAT \(N, (.+), StatusPosART\)( TARGET|): OVC Disclosed Known HIV Status'),
      'op': 'less_than_or_equal_to',
      'dest': ['OVC_HIVSTAT (N, \\1, ReportedStatus)\\2: OVC Disclosed Known HIV', 'Positive'],
-     'id': 'MR32'},
+     'id': 'MR36'},
     {'source': re.compile('OVC_HIVSTAT \(N, (.+), StatusNotRep\)( TARGET|): OVC Disclosed Known HIV Status'),
      'op': 'less_than_or_equal_to',
      'dest': ['OVC_HIVSTAT (N, \\1, ReportedStatus)\\2: OVC Disclosed Known HIV', 'Undisclosed to IP'],
-     'id': 'MR33'}
+     'id': 'MR37'}
     ]
 
 def getDeStartingWith(destName):
@@ -430,13 +490,32 @@ def main():
                 if 'ruletype' in p:
                     ruleType=p['ruletype']
                 m = p['source'].match(eltName)
-                if m and ('except' not in p or not p['except'].match(eltName)):
+                secondSource = None
+                if 'secondSource' in p:
+                    if p['secondSource']['replace'] in eltName:
+                        m = None # Don't process data element now, because it's secondary to another.
+                    elif p['secondSource']['match'] in eltName:
+                        secondSourceName = eltName.replace(p['secondSource']['match'],p['secondSource']['replace'])
+                        secondSource = deByName.get(secondSourceName)
+                        print("SecondSource: "+ p['secondSource']['match'] + " -> " + p['secondSource']['replace']+" -> "+secondSourceName)
+                if 'except' in p:
+                    if type(p['except']) is list:
+                        for e in p['except']:
+                            if e.match(eltName):
+                                m = None
+                    elif p['except'].match(eltName):
+                        m = None
+                if m:
                     if type(p['dest']) is list:
                         destName = m.expand(p['dest'][0])
-                        destDisaggName = p['dest'][1]
+                        destDisaggNames = p['dest'][1:]
                     else:
                         destName = m.expand(p['dest'])
-                        destDisaggName = ''
+                        destDisaggNames = False
+                    if 'redirect' in p:
+                        for redir in p['redirect']:
+                            if redir['dest'] in destName:
+                                destName = redir['alt']
                     if 'match' in p and p['match']=='exact':
                         dest = deByName.get(destName)
                     else:
@@ -447,19 +526,35 @@ def main():
                         use_description = False
                     if 'name' in p:
                         use_name=m.expand(p['name'])
+                        if secondSource:
+                            use_name=use_name.replace( p['secondSource']['match'], p['secondSource']['match']+'+'+p['secondSource']['replace'] )
                     else:
                         use_name = False
                     if 'instruction' in p:
                         instruction=m.expand(p['instruction'])
                     else:
                         instruction=use_description
+                    destElementName = ''
+                    if 'destElementName' in p:
+                        destElementName = m.expand(p['destElementName'])
+                    if p['op'] in ('exclusive_pair','complementary_pair'):
+                        strategy='SKIP_IF_ALL_VALUES_MISSING'
+                    else:
+                        strategy='NEVER_SKIP'
+                        if 'optional' in p:
+                            for opt in p['optional']:
+                                if opt in destName:
+                                    strategy='SKIP_IF_ANY_VALUE_MISSING'
                     vrule = False
                     if dest:
-                        if destDisaggName:
-                            destDisaggs=[{'name': destDisaggName, 'id': findDisaggId(dest,destDisaggName)}]
-                            showDisagg=' / ' + destDisaggName
+                        if destDisaggNames:
+                            destDisaggs=[]
+                            showDisagg=''
+                            for disName in destDisaggNames:
+                                destDisaggs.append({'name': disName, 'id': findDisaggId(dest,disName)})
+                                showDisagg+=' / ' + disName
                             if not use_name:
-                                use_name=dataElement['shortName']+' '+p['op']+' '+dest['shortName']+' '+destDisaggName
+                                use_name=dataElement['shortName']+' '+p['op']+' '+dest['shortName']+showDisagg
                         else:
                             destDisaggs=False;
                             showDisagg=''
@@ -468,24 +563,24 @@ def main():
                         print(ruleid+'\t'+de['name'] + '(' + de['id'] + ')' + '\t:' + p['op'] + ':\t' + destName + '\t' + 'NOT FOUND')
                     if dest:
                         if 'special' in p and p['special'] == 'serviceDeliveryPoint':
-                            makeServiceDeliveryPointsRules(dataElement,p['op'],dest,importance,ruleType,periodType)
+                            makeServiceDeliveryPointsRules(dataElement,secondSource,p['op'],dest,importance,strategy,ruleType,periodType)
                         else:
-                            vrule=makeVRULE(dataElement,p['op'],dest,None,destDisaggs,None,use_name,use_description,importance,ruleType,periodType,instruction)
-                    if vrule:
-                        vrule['importance']=importance
-                        vrule['ruleType']=ruleType
-                        vrule['periodType']=periodType
+                            vrule=makeVRULE(dataElement,secondSource,p['op'],dest,None,destDisaggs,destElementName,None,use_name,use_description,importance,strategy,ruleType,periodType,instruction)
                     if ruleid in stats:
                         stats[ruleid]=stats[ruleid]+1
                     else:
                         stats[ruleid]=1
                     if vrule:
+                        print('\t'+vrule['name']+' '+vrule['id'])
                         newRules.append(vrule)
                     matched=True
         if matched:
             matchedElements.append(dataElement)
         else:
             print('?? '+eltName)
+    validationRuleGroup = {'name': 'All MER Validation Rules', 'id': 'wnFo1vX2IW3', 'validationRules': []}
+    for rule in validationRules:
+        validationRuleGroup['validationRules'].append({ 'id': rule['id'] })
     for rule in newRules:
         sig=[rule['leftSide']['dataElements'][0]['id'],
              rule['operator'],
@@ -493,6 +588,7 @@ def main():
         if sig not in ruleSignatures:
             if rule['name'] not in rulesByName:
                 addedRules.append(rule)
+                validationRuleGroup['validationRules'].append({ 'id': rule['id'] })
             else:
                 print('Rule name conflict despite unique sig '+str(sig)+'\n\t'+rule['name']+'\n\t'+str(rulesByName[rule['name']]))
     print('Adding '+str(len(addedRules))+'/'+str(len(newRules))+' validation rules to '+
@@ -510,14 +606,15 @@ def main():
     if not output_file:
         output_file='vrules_import.json'
     output=open (output_file,'w')
-    output.write(json.dumps({'validationRules': addedRules}, 
+    output.write(json.dumps({'validationRules': addedRules, 'validationRuleGroups': [validationRuleGroup]},
                             sort_keys=True,indent=4,
                             separators=(',',':')))
     output.close()
-    
+
     remove_file='vrules_remove.sh'
     out_remove=open(remove_file,'w')
     os.fchmod(out_remove.fileno(), 0o755) # make the script executable
+    out_remove.write('#!/bin/bash\nset -x #echo on\n\n')
     deleteCommand='curl -X DELETE -u '+server_auth[0]+':'+server_auth[1]+' "'+server_root+'validationRules/'
     for r in addedRules:
         out_remove.write(deleteCommand+r['id']+'"\n')
