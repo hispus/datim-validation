@@ -390,10 +390,10 @@ rulePatterns = [
      'dest': 'PMTCT_FO (D, \\1)\\2:Exposed Infants',
      'name': 'PMTCT_FO (N, \\1) v2\\2: Final Outcomes Exposed Infants <= Denominator',
      'id': 'MR25'},
-    {'source': re.compile('PMTCT_ARV_NAT \(N, NAT, NewExistingArt\)( TARGET|): ARVs'),
+    {'source': re.compile('PMTCT_ARV_(SUB|)NAT \(N, (SUB|)NAT, NewExistingArt\)( TARGET|): ARVs'),
      'op': 'less_than_or_equal_to',
-     'dest': 'PMTCT_ARV_NAT (D, NAT)\\1: ARVs',
-     'name': 'PMTCT_ARV_NAT (N, NAT, NewExistingArt)\\1: ARVs <= Denominator',
+     'dest': 'PMTCT_ARV_\\1NAT (D, \\2NAT)\\3: ARVs',
+     'name': 'PMTCT_ARV_\\1NAT (N, \\2NAT, NewExistingArt)\\3: ARVs <= Denominator',
      'id': 'MR26'},
     {'source': re.compile('KP_PREV \(N, (\S+), KeyPop\) v2( TARGET|): Key Pop Preventive'),
      'op': 'less_than_or_equal_to',
@@ -450,7 +450,11 @@ rulePatterns = [
     {'source': re.compile('OVC_HIVSTAT \(N, (.+), StatusNotRep\)( TARGET|): OVC Disclosed Known HIV Status'),
      'op': 'less_than_or_equal_to',
      'dest': ['OVC_HIVSTAT (N, \\1, ReportedStatus)\\2: OVC Disclosed Known HIV', 'Undisclosed to IP'],
-     'id': 'MR37'}
+     'id': 'MR37'},
+    {'source': re.compile('VMMC_CIRC_(SUB|)NAT \(N, (SUB|)NAT\)( TARGET|): Voluntary Circumcised'),
+     'op': 'less_than_or_equal_to',
+     'dest': ['VMMC_TOTALCIRC_\\1NAT (N, \\2NAT)\\3: Voluntary Circumcised'],
+     'id': 'MR38'}
     ]
 
 def getDeStartingWith(destName):
