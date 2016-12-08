@@ -365,9 +365,7 @@ rulePatterns = [
          { 'dest': 'OVC_SERV (N, DSD):', 'alt': 'OVC_SERV (N, DSD, ProgramStatus): Beneficiaries Served' },
          { 'dest': 'OVC_SERV (N, TA):', 'alt': 'OVC_SERV (N, TA, ProgramStatus): Beneficiaries Served' },
          { 'dest': 'TX_PVLS (N, DSD):', 'alt': 'TX_PVLS (N, DSD, RoutineTargeted) v2: 12 Months Viral Load < 1000' },
-         { 'dest': 'TX_PVLS (N, TA):', 'alt': 'TX_PVLS (N, TA, RoutineTargeted) v2: 12 Months Viral Load < 1000' },
-         { 'dest': 'TX_PVLS (D, DSD):', 'alt': 'TX_PVLS (D, DSD, RoutineTargeted) v2: Viral Load Documented' },
-         { 'dest': 'TX_PVLS (D, TA):', 'alt': 'TX_PVLS (D, TA, RoutineTargeted) v2: Viral Load Documented' }         
+         { 'dest': 'TX_PVLS (N, TA):', 'alt': 'TX_PVLS (N, TA, RoutineTargeted) v2: 12 Months Viral Load < 1000' }
       ],
      'except': [re.compile('OVC_SERV \(N, .*, Age/Sex/Service'),
                 re.compile('GEND_GBV \(N, DSD, PEP\)'),
