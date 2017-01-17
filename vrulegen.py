@@ -22,6 +22,7 @@ dataElements = []
 validationRules = []
 rulesByName = {}
 ruleSignatures = []
+rulesBySignature = {}
 ruleExpressionSignatures = []
 newRules = []
 addedRules = []
@@ -130,6 +131,7 @@ def setup():
             lsx=rule['leftSide']['expression']
             rsx=rule['rightSide']['expression']
             ruleSignatures.append([ls,op,rs])
+            rulesBySignature[ls + '-' + op + '-' + rs]=rule
             if op == 'greater_than_or_equal_to':
                 ruleSignatures.append([rs,'less_than_or_equal_to',ls])
             ruleExpressionSignatures.append([lsx,op,rsx])
@@ -356,6 +358,9 @@ rulePatterns = [
      'id': 'MR21'},
     {'source': re.compile('(.+) \((.),\s*(\S+),\s*([^,)]+)\)( TARGET|)( v\d+|): (.+|)'),
      'secondSource': { 'match': 'AgeLessThanTen', 'replace': 'AgeAboveTen/Sex' },
+     'except': [re.compile('OVC_SERV \(N, .*, Age/Sex/Service'), # Explicitly requested not to compare with total.
+                re.compile('GEND_GBV \(N, DSD, PEP\)'),
+                re.compile('GEND_GBV \(N, TA, PEP\)')],
      'op': 'less_than_or_equal_to',
      'dest': '\\1 (\\2, \\3)\\5: \\7',
      'name': '\\1 (\\2, \\3, \\4)\\5\\6: \\7 <= Total',
@@ -364,12 +369,13 @@ rulePatterns = [
          { 'dest': 'KP_PREV (N, TA):', 'alt': 'KP_PREV (N, TA, KeyPop) v2: Key Pop Preventive' },
          { 'dest': 'OVC_SERV (N, DSD):', 'alt': 'OVC_SERV (N, DSD, ProgramStatus): Beneficiaries Served' },
          { 'dest': 'OVC_SERV (N, TA):', 'alt': 'OVC_SERV (N, TA, ProgramStatus): Beneficiaries Served' },
+         { 'dest': 'OVC_SERV (N, DSD) TARGET:', 'alt': 'OVC_SERV (N, DSD, ProgramStatus) TARGET: Beneficiaries Served' },
+         { 'dest': 'OVC_SERV (N, TA) TARGET:', 'alt': 'OVC_SERV (N, TA, ProgramStatus) TARGET: Beneficiaries Served' },
          { 'dest': 'TX_PVLS (N, DSD):', 'alt': 'TX_PVLS (N, DSD, RoutineTargeted) v2: 12 Months Viral Load < 1000' },
-         { 'dest': 'TX_PVLS (N, TA):', 'alt': 'TX_PVLS (N, TA, RoutineTargeted) v2: 12 Months Viral Load < 1000' }
+         { 'dest': 'TX_PVLS (N, TA):', 'alt': 'TX_PVLS (N, TA, RoutineTargeted) v2: 12 Months Viral Load < 1000' },
+         { 'dest': 'TX_PVLS (N, DSD) TARGET:', 'alt': 'TX_PVLS (N, DSD, RoutineTargeted) TARGET v2: 12 Months Viral Load < 1000' },
+         { 'dest': 'TX_PVLS (N, TA) TARGET:', 'alt': 'TX_PVLS (N, TA, RoutineTargeted) TARGET v2: 12 Months Viral Load < 1000' }
       ],
-     'except': [re.compile('OVC_SERV \(N, .*, Age/Sex/Service'),
-                re.compile('GEND_GBV \(N, DSD, PEP\)'),
-                re.compile('GEND_GBV \(N, TA, PEP\)')],
      'id': 'MR22'},
     {'source': re.compile('TB_SCREENDX \((.),\s*(\S+),\s*([^,)]+)\)( TARGET|): (.+|)'),
      'op': 'less_than_or_equal_to',
@@ -383,76 +389,90 @@ rulePatterns = [
      'name': '\\1 (\\2)\\3\\4\\5 <= Total',
      'match': 'exact',
      'id': 'MR24'},
-    {'source': re.compile('PMTCT_FO \(N, (\S+), Outcome\) v2( TARGET|): Final Outcomes Exposed Infants'),
+    {'source': re.compile('PMTCT_FO \(N, (\S+), Outcome\)( TARGET|) v2: Final Outcomes Exposed Infants'),
      'op': 'less_than_or_equal_to',
      'dest': 'PMTCT_FO (D, \\1)\\2:Exposed Infants',
      'name': 'PMTCT_FO (N, \\1) v2\\2: Final Outcomes Exposed Infants <= Denominator',
      'id': 'MR25'},
+    {'source': re.compile('PMTCT_FO \(N, (\S+), Outcome\)( TARGET|) v2: Final Outcomes Exposed Infants'),
+     'op': 'less_than_or_equal_to',
+     'dest': 'PMTCT_FO (D, \\1)\\2: Final Outcomes Exposed Infants',
+     'name': 'PMTCT_FO (N, \\1) v2\\2: Final Outcomes Exposed Infants <= Denominator',
+     'id': 'MR26'},
     {'source': re.compile('PMTCT_ARV_(SUB|)NAT \(N, (SUB|)NAT, NewExistingArt\)( TARGET|): ARVs'),
      'op': 'less_than_or_equal_to',
      'dest': 'PMTCT_ARV_\\1NAT (D, \\2NAT)\\3: ARVs',
      'name': 'PMTCT_ARV_\\1NAT (N, \\2NAT, NewExistingArt)\\3: ARVs <= Denominator',
-     'id': 'MR26'},
+     'id': 'MR27'},
     {'source': re.compile('KP_PREV \(N, (\S+), KeyPop\) v2( TARGET|): Key Pop Preventive'),
      'op': 'less_than_or_equal_to',
      'dest': 'KP_PREV (D, \\1, KeyPop) v2\\2: Key Pop Preventive',
      'name': 'KP_PREV (N, \\1, KeyPop)\\1: ARVs <= Denominator',
      'optional': ['KP_PREV'],
-     'id': 'MR27'},
+     'id': 'MR28'},
+    {'source': re.compile('TX_PVLS \(N, (\S+), RoutineTargeted\) TARGET v2: 12 Months Viral Load < 1000'),
+     'op': 'less_than_or_equal_to',
+     'dest': 'TX_PVLS (D, \\1) TARGET: Viral Load Documented',
+     'name': 'TX_PVLS (N, \\1, RoutineTargeted) TARGET v2 <= Denominator',
+     'id': 'MR29'},
     {'source': re.compile('(.+) \(N,\s+([^,)]+)\)( TARGET|): (.+)'),
      'op': 'less_than_or_equal_to',
      'dest': '\\1 (D, \\2)\\3:',
      'name': '\\1 (N, \\2)\\3: \\4 <= Denominator',
      'redirect': [
          { 'dest': 'PMTCT_STAT (D, DSD):', 'alt': 'PMTCT_STAT (D, DSD, Age) v2: New ANC clients' },
+         { 'dest': 'PMTCT_STAT (D, DSD) TARGET:', 'alt': 'PMTCT_STAT (D, DSD, Age) TARGET v2: New ANC clients' },
          { 'dest': 'PMTCT_STAT (D, TA):', 'alt': 'PMTCT_STAT (D, TA, Age) v2: New ANC clients' },
+         { 'dest': 'PMTCT_STAT (D, TA) TARGET:', 'alt': 'PMTCT_STAT (D, TA, Age) TARGET v2: New ANC clients' },
          { 'dest': 'OVC_SERV (N, DSD):', 'alt': 'OVC_SERV (N, DSD, ProgramStatus): Beneficiaries Served' },
-         { 'dest': 'OVC_SERV (N, TA):', 'alt': 'OVC_SERV (N, TA, ProgramStatus): Beneficiaries Served' }
+         { 'dest': 'OVC_SERV (N, TA):', 'alt': 'OVC_SERV (N, TA, ProgramStatus): Beneficiaries Served' },
+         { 'dest': 'OVC_SERV (N, DSD) TARGET:', 'alt': 'OVC_SERV (N, DSD, ProgramStatus) TARGET: Beneficiaries Served' },
+         { 'dest': 'OVC_SERV (N, TA) TARGET:', 'alt': 'OVC_SERV (N, TA, ProgramStatus) TARGET: Beneficiaries Served' }
       ],
      'optional': ['KP_PREV', 'PP_PREV'],
-     'id': 'MR28'},
+     'id': 'MR30'},
     {'source': re.compile('TB_SCREEN \(N, (\S+)\)( TARGET|): PLHIV Screened'),
      'op': 'less_than_or_equal_to',
      'dest': 'TB_SCREENDX (D, \\1)\\2: PLHIV Reported Symptoms',
      'name': 'TB_SCREEN (N, \\1)\\2: PLHIV Screened <= Denominator',
-     'id': 'MR29'},
+     'id': 'MR31'},
     {'source': re.compile('(.+) \((N|D), (.+), Age(/Sex)(/Result|)\)( TARGET|): (.+)'),
      'op': 'exclusive_pair',
      'dest': '\\1 (\\2, \\3, Age\\4 Aggregated\\5)\\6: \\7',
-     'id': 'MR30'},
-    {'source': re.compile('(.+) \((N|D), (.+), (.*)/Age/Female(.*)\)( TARGET|): (.+)'),
-     'op': 'exclusive_pair',
-     'dest': '\\1 (\\2, \\3, \\4/Aggregated Age/Female\\5)\\6: \\7',
-     'id': 'MR31'},
-    {'source': re.compile('(.+) \((N|D), (.+), (.*/)(AgeLessThanTen|AgeAboveTen/Sex)(/Result)(/Positive|)\)( TARGET|): (.+)'),
-     'op': 'exclusive_pair',
-     'dest': '\\1 (\\2, \\3, \\4Aggregated Age/Sex\\6)\\7: \\8',
      'id': 'MR32'},
+    {'source': re.compile('(.+) \((N|D), (.+), (.*)/Age/(Female|Male)(.*)\)( TARGET|): (.+)'),
+     'op': 'exclusive_pair',
+     'dest': '\\1 (\\2, \\3, \\4/Aggregated Age/\\5\\6)\\7: \\8',
+     'id': 'MR33'},
+    {'source': re.compile('(.+) \((N|D), (.+), (.*/)(AgeLessThanTen|AgeAboveTen/Sex)(/Result|)(/Positive|)\)( TARGET|): (.+)'),
+     'op': 'exclusive_pair',
+     'dest': '\\1 (\\2, \\3, \\4Aggregated Age/Sex\\6\\7)\\8: \\9',
+     'id': 'MR34'},
     {'source': re.compile('(.+) \((N|D), (.+), (AgeLessThanTen|AgeAboveTen/Sex)(/Positive)\)( TARGET|): (.+)'),
      'op': 'exclusive_pair',
      'dest': '\\1 (\\2, \\3, Age/Sex Aggregated/Result)\\6: \\7',
-     'id': 'MR33'},
-    {'source': re.compile('(.+) \(N, NAT, Sex\)( TARGET|): (.+)'),
+     'id': 'MR35'},
+    {'source': re.compile('(.+) \((N, |)(SUB|)NAT, Sex\)( TARGET|): (.+)'),
      'op': 'exclusive_pair',
-     'dest': '\\1 (N, NAT, Age/Sex)\\2: \\3',
-     'id': 'MR34'},
+     'dest': '\\1 (\\2\\3NAT, Age/Sex)\\4: \\5',
+     'id': 'MR36'},
     {'source': re.compile('(.+) \((N|D), (.+), ServiceDeliveryPoint/Result\)( TARGET|): (.+)'),
      'op': 'less_than_or_equal_to',
      'dest': '\\1 (\\2, \\3, ServiceDeliveryPoint)\\4: \\5',
      'special': 'serviceDeliveryPoint',
-     'id': 'MR35'},
+     'id': 'MR37'},
     {'source': re.compile('OVC_HIVSTAT \(N, (.+), StatusPosART\)( TARGET|): OVC Disclosed Known HIV Status'),
      'op': 'less_than_or_equal_to',
      'dest': ['OVC_HIVSTAT (N, \\1, ReportedStatus)\\2: OVC Disclosed Known HIV', 'Positive'],
-     'id': 'MR36'},
+     'id': 'MR38'},
     {'source': re.compile('OVC_HIVSTAT \(N, (.+), StatusNotRep\)( TARGET|): OVC Disclosed Known HIV Status'),
      'op': 'less_than_or_equal_to',
      'dest': ['OVC_HIVSTAT (N, \\1, ReportedStatus)\\2: OVC Disclosed Known HIV', 'Undisclosed to IP'],
-     'id': 'MR37'},
+     'id': 'MR39'},
     {'source': re.compile('VMMC_CIRC_(SUB|)NAT \(N, (SUB|)NAT\)( TARGET|): Voluntary Circumcised'),
      'op': 'less_than_or_equal_to',
      'dest': ['VMMC_TOTALCIRC_\\1NAT (N, \\2NAT)\\3: Voluntary Circumcised'],
-     'id': 'MR38'}
+     'id': 'MR40'}
     ]
 
 def getDeStartingWith(destName):
@@ -548,7 +568,7 @@ def main():
                                 if opt in destName:
                                     strategy='SKIP_IF_ANY_VALUE_MISSING'
                     vrule = False
-                    if dest:
+                    if dest and dest['name'] != de['name']:
                         if destDisaggNames:
                             destDisaggs=[]
                             showDisagg=''
@@ -560,22 +580,21 @@ def main():
                         else:
                             destDisaggs=False;
                             showDisagg=''
-                        print(ruleid+'\t'+de['name'] + ' (' + de['id'] + ')' + '\t:' + p['op'] + ':\t' + dest['name'] + ' (' + dest['id'] + ')' + showDisagg + ' based on ' + destName)
-                    else:
-                        print(ruleid+'\t'+de['name'] + '(' + de['id'] + ')' + '\t:' + p['op'] + ':\t' + destName + '\t' + 'NOT FOUND')
-                    if dest:
                         if 'special' in p and p['special'] == 'serviceDeliveryPoint':
                             makeServiceDeliveryPointsRules(dataElement,secondSource,p['op'],dest,importance,strategy,ruleType,periodType)
                         else:
                             vrule=makeVRULE(dataElement,secondSource,p['op'],dest,None,destDisaggs,destElementName,None,use_name,use_description,importance,strategy,ruleType,periodType,instruction)
-                    if ruleid in stats:
-                        stats[ruleid]=stats[ruleid]+1
+                            newRules.append(vrule)
+                        if ruleid in stats:
+                            stats[ruleid]=stats[ruleid]+1
+                        else:
+                            stats[ruleid]=1
+                        matched=True
+                        print(ruleid+'\t'+de['name'] + ' (' + de['id'] + ')' + '\t:' + p['op'] + ':\t' + dest['name'] + ' (' + dest['id'] + ')' + showDisagg + ' based on ' + destName)
+                        if vrule:
+                            print('\t'+vrule['name']+' '+vrule['id'])
                     else:
-                        stats[ruleid]=1
-                    if vrule:
-                        print('\t'+vrule['name']+' '+vrule['id'])
-                        newRules.append(vrule)
-                    matched=True
+                        print(ruleid+'\t'+de['name'] + '(' + de['id'] + ')' + '\t:' + p['op'] + ':\t' + destName + '\t' + 'NOT FOUND')
         if matched:
             matchedElements.append(dataElement)
         else:
@@ -587,12 +606,15 @@ def main():
         sig=[rule['leftSide']['dataElements'][0]['id'],
              rule['operator'],
              rule['rightSide']['dataElements'][0]['id']]
+        sigString=rule['leftSide']['dataElements'][0]['id'] + '-' + rule['operator'] + '-' + rule['rightSide']['dataElements'][0]['id']
         if sig not in ruleSignatures:
             if rule['name'] not in rulesByName:
                 addedRules.append(rule)
                 validationRuleGroup['validationRules'].append({ 'id': rule['id'] })
             else:
                 print('Rule name conflict despite unique sig '+str(sig)+'\n\t'+rule['name']+'\n\t'+str(rulesByName[rule['name']]))
+        else:
+            print('Signature already exists for ' + rule['name'] + ' -> ' + rulesBySignature[sigString]['name'])
     print('Adding '+str(len(addedRules))+'/'+str(len(newRules))+' validation rules to '+
           str(len(rulesByName))+" current rules based on "+
           str(len(matchedElements))+"/"+str(len(processedElements))+
