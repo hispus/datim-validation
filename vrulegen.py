@@ -18,6 +18,7 @@ debugging=False
 
 defaultCOCid = False
 deliveryPoints = {}
+keyPops3 = {}
 dataElements = []
 validationRules = []
 rulesByName = {}
@@ -117,12 +118,19 @@ def getDeliveryPoints():
     for optionCombo in deliveryPointCategoryCombos[0]['categoryCombo']['categoryOptionCombos']:
         deliveryPoints[optionCombo['name']]['all'] = optionCombo['id']
 
+def getKeyPops3():
+    global keyPops3
+    keyPops3CatCombo = findAll('categoryCombos','name:eq:Key Populations v3',"categoryOptionCombos[id,name]")
+    print keyPops3CatCombo
+    keyPops3 = keyPops3CatCombo[0]['categoryOptionCombos']
+
 def setup():
     global defaultCOCid
     allDataElements = getAll('dataElements',"id,name,shortName,categoryCombo[id,categoryOptionCombos[id,name]],description,dataSets")
     allValidationRules = getAll('validationRules',"id,name,rightSide[expression,dataElements],leftSide[expression,dataElements],operator")
     defaultCOCid = findAll('categoryOptionCombos','name:eq:default',"id")[0]['id']
     getDeliveryPoints()
+    getKeyPops3()
     for rule in allValidationRules:
         try:
             op=rule['operator']
@@ -233,6 +241,26 @@ def makeServiceDeliveryPointsRules(ls,secondSource,op,rs,importance,strategy,rul
                 addedRules.append(vrule)
             else:
                 print('Service Delivery Point Rule name conflict despite unique sigx '+str(sigx)+'\n\t'+ruleName+'\n\t'+str(rulesByName[ruleName]))
+        else:
+            print('Rule expression exists for rule:')
+            print(vrule)
+
+def makeKeyPops3Rules(ls,secondSource,op,rs,importance,strategy,ruleType,periodType):
+    global keyPops3, ruleExpressionSignatures, addedRules
+    for pop in keyPops3:
+        print(pop)
+        lsDisaggs=[pop]
+        rsDisaggs=[pop]
+        ruleName=ls['name']+', '+pop['name']+' <= Size Estimate Total, '+pop['name']
+        vrule = makeVRULE(ls,secondSource,op,rs,lsDisaggs,rsDisaggs,None,None,ruleName,ruleName,importance,strategy,ruleType,periodType,ruleName)
+        sigx=[vrule['leftSide']['expression'],
+              vrule['operator'],
+              vrule['rightSide']['expression']]
+        if sigx not in ruleExpressionSignatures:
+            if vrule['name'] not in rulesByName:
+                addedRules.append(vrule)
+            else:
+                print('Key Pops v3 Rule name conflict despite unique sigx '+str(sigx)+'\n\t'+ruleName+'\n\t'+str(rulesByName[ruleName]))
         else:
             print('Rule expression exists for rule:')
             print(vrule)
@@ -389,32 +417,38 @@ rulePatterns = [
      'name': '\\1 (\\2)\\3\\4\\5 <= Total',
      'match': 'exact',
      'id': 'MR24'},
+    {'source': re.compile('(.+) \((SUB|)NAT, (\S+)\)(: .+|)'),
+     'op': 'less_than_or_equal_to',
+     'dest': '\\1 (\\2NAT)\\4',
+     'name': '\\1 (\\2NAT, \\3)\\4 <= Total',
+     'match': 'exact',
+     'id': 'MR25'},
     {'source': re.compile('PMTCT_FO \(N, (\S+), Outcome\)( TARGET|) v2: Final Outcomes Exposed Infants'),
      'op': 'less_than_or_equal_to',
      'dest': 'PMTCT_FO (D, \\1)\\2:Exposed Infants',
      'name': 'PMTCT_FO (N, \\1) v2\\2: Final Outcomes Exposed Infants <= Denominator',
-     'id': 'MR25'},
+     'id': 'MR26'},
     {'source': re.compile('PMTCT_FO \(N, (\S+), Outcome\)( TARGET|) v2: Final Outcomes Exposed Infants'),
      'op': 'less_than_or_equal_to',
      'dest': 'PMTCT_FO (D, \\1)\\2: Final Outcomes Exposed Infants',
      'name': 'PMTCT_FO (N, \\1) v2\\2: Final Outcomes Exposed Infants <= Denominator',
-     'id': 'MR26'},
+     'id': 'MR27'},
     {'source': re.compile('PMTCT_ARV_(SUB|)NAT \(N, (SUB|)NAT, NewExistingArt\)( TARGET|): ARVs'),
      'op': 'less_than_or_equal_to',
      'dest': 'PMTCT_ARV_\\1NAT (D, \\2NAT)\\3: ARVs',
      'name': 'PMTCT_ARV_\\1NAT (N, \\2NAT, NewExistingArt)\\3: ARVs <= Denominator',
-     'id': 'MR27'},
+     'id': 'MR28'},
     {'source': re.compile('KP_PREV \(N, (\S+), KeyPop\) v2( TARGET|): Key Pop Preventive'),
      'op': 'less_than_or_equal_to',
      'dest': 'KP_PREV (D, \\1, KeyPop) v2\\2: Key Pop Preventive',
      'name': 'KP_PREV (N, \\1, KeyPop)\\1: ARVs <= Denominator',
      'optional': ['KP_PREV'],
-     'id': 'MR28'},
+     'id': 'MR29'},
     {'source': re.compile('TX_PVLS \(N, (\S+), RoutineTargeted\) TARGET v2: 12 Months Viral Load < 1000'),
      'op': 'less_than_or_equal_to',
      'dest': 'TX_PVLS (D, \\1) TARGET: Viral Load Documented',
      'name': 'TX_PVLS (N, \\1, RoutineTargeted) TARGET v2 <= Denominator',
-     'id': 'MR29'},
+     'id': 'MR30'},
     {'source': re.compile('(.+) \(N,\s+([^,)]+)\)( TARGET|): (.+)'),
      'op': 'less_than_or_equal_to',
      'dest': '\\1 (D, \\2)\\3:',
@@ -430,49 +464,54 @@ rulePatterns = [
          { 'dest': 'OVC_SERV (N, TA) TARGET:', 'alt': 'OVC_SERV (N, TA, ProgramStatus) TARGET: Beneficiaries Served' }
       ],
      'optional': ['KP_PREV', 'PP_PREV'],
-     'id': 'MR30'},
+     'id': 'MR31'},
     {'source': re.compile('TB_SCREEN \(N, (\S+)\)( TARGET|): PLHIV Screened'),
      'op': 'less_than_or_equal_to',
      'dest': 'TB_SCREENDX (D, \\1)\\2: PLHIV Reported Symptoms',
      'name': 'TB_SCREEN (N, \\1)\\2: PLHIV Screened <= Denominator',
-     'id': 'MR31'},
+     'id': 'MR32'},
     {'source': re.compile('(.+) \((N|D), (.+), Age(/Sex)(/Result|)\)( TARGET|): (.+)'),
      'op': 'exclusive_pair',
      'dest': '\\1 (\\2, \\3, Age\\4 Aggregated\\5)\\6: \\7',
-     'id': 'MR32'},
+     'id': 'MR33'},
     {'source': re.compile('(.+) \((N|D), (.+), (.*)/Age/(Female|Male)(.*)\)( TARGET|): (.+)'),
      'op': 'exclusive_pair',
      'dest': '\\1 (\\2, \\3, \\4/Aggregated Age/\\5\\6)\\7: \\8',
-     'id': 'MR33'},
+     'id': 'MR34'},
     {'source': re.compile('(.+) \((N|D), (.+), (.*/)(AgeLessThanTen|AgeAboveTen/Sex)(/Result|)(/Positive|)\)( TARGET|): (.+)'),
      'op': 'exclusive_pair',
      'dest': '\\1 (\\2, \\3, \\4Aggregated Age/Sex\\6\\7)\\8: \\9',
-     'id': 'MR34'},
+     'id': 'MR35'},
     {'source': re.compile('(.+) \((N|D), (.+), (AgeLessThanTen|AgeAboveTen/Sex)(/Positive)\)( TARGET|): (.+)'),
      'op': 'exclusive_pair',
      'dest': '\\1 (\\2, \\3, Age/Sex Aggregated/Result)\\6: \\7',
-     'id': 'MR35'},
-    {'source': re.compile('(.+) \((N, |)(SUB|)NAT, Sex\)( TARGET|): (.+)'),
-     'op': 'exclusive_pair',
-     'dest': '\\1 (\\2\\3NAT, Age/Sex)\\4: \\5',
      'id': 'MR36'},
+    {'source': re.compile('(.+) \((N, |)(SUB|)NAT, Sex\)( TARGET|)(: .+|)'),
+     'op': 'exclusive_pair',
+     'dest': '\\1 (\\2\\3NAT, Age/Sex)\\4\\5',
+     'id': 'MR37'},
     {'source': re.compile('(.+) \((N|D), (.+), ServiceDeliveryPoint/Result\)( TARGET|): (.+)'),
      'op': 'less_than_or_equal_to',
      'dest': '\\1 (\\2, \\3, ServiceDeliveryPoint)\\4: \\5',
      'special': 'serviceDeliveryPoint',
-     'id': 'MR37'},
+     'id': 'MR38'},
+    {'source': re.compile('KP_ESTIMATES \((SUB|)NAT, Keypop/PositiveEstimate\)'),
+     'op': 'less_than_or_equal_to',
+     'dest': 'KP_ESTIMATES (\\1NAT, Keypop/TotalSizeEstimate)',
+     'special': 'keyPops3',
+     'id': 'MR39'},
     {'source': re.compile('OVC_HIVSTAT \(N, (.+), StatusPosART\)( TARGET|): OVC Disclosed Known HIV Status'),
      'op': 'less_than_or_equal_to',
      'dest': ['OVC_HIVSTAT (N, \\1, ReportedStatus)\\2: OVC Disclosed Known HIV', 'Positive'],
-     'id': 'MR38'},
+     'id': 'MR40'},
     {'source': re.compile('OVC_HIVSTAT \(N, (.+), StatusNotRep\)( TARGET|): OVC Disclosed Known HIV Status'),
      'op': 'less_than_or_equal_to',
      'dest': ['OVC_HIVSTAT (N, \\1, ReportedStatus)\\2: OVC Disclosed Known HIV', 'Undisclosed to IP'],
-     'id': 'MR39'},
+     'id': 'MR41'},
     {'source': re.compile('VMMC_CIRC_(SUB|)NAT \(N, (SUB|)NAT\)( TARGET|): Voluntary Circumcised'),
      'op': 'less_than_or_equal_to',
      'dest': ['VMMC_TOTALCIRC_\\1NAT (N, \\2NAT)\\3: Voluntary Circumcised'],
-     'id': 'MR40'}
+     'id': 'MR42'}
     ]
 
 def getDeStartingWith(destName):
@@ -503,7 +542,7 @@ def main():
                 importance="MEDIUM"
                 ruleType="VALIDATION"
                 periodType="Quarterly"
-                if eltName.find("TARGET") > 0:
+                if eltName.find("TARGET") >= 0 or eltName.find("IMPATT") >= 0 or eltName.find("KP_ESTIMATES") >= 0:
                     periodType="FinancialOct"
                 if 'periodType' in p:
                     periodType=p['periodType']
@@ -580,8 +619,11 @@ def main():
                         else:
                             destDisaggs=False;
                             showDisagg=''
-                        if 'special' in p and p['special'] == 'serviceDeliveryPoint':
-                            makeServiceDeliveryPointsRules(dataElement,secondSource,p['op'],dest,importance,strategy,ruleType,periodType)
+                        if 'special' in p:
+                            if p['special'] == 'serviceDeliveryPoint':
+                                makeServiceDeliveryPointsRules(dataElement,secondSource,p['op'],dest,importance,strategy,ruleType,periodType)
+                            elif p['special'] == 'keyPops3':
+                                makeKeyPops3Rules(dataElement,secondSource,p['op'],dest,importance,strategy,ruleType,periodType)
                         else:
                             vrule=makeVRULE(dataElement,secondSource,p['op'],dest,None,destDisaggs,destElementName,None,use_name,use_description,importance,strategy,ruleType,periodType,instruction)
                             newRules.append(vrule)
