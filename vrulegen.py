@@ -122,7 +122,10 @@ def getKeyPops3():
     global keyPops3
     keyPops3CatCombo = findAll('categoryCombos','name:eq:Key Populations v3',"categoryOptionCombos[id,name]")
     print keyPops3CatCombo
-    keyPops3 = keyPops3CatCombo[0]['categoryOptionCombos']
+    try:
+        keyPops3 = keyPops3CatCombo[0]['categoryOptionCombos']
+    except:
+        doNothing = 1
 
 def setup():
     global defaultCOCid
@@ -319,9 +322,9 @@ rulePatterns = [
      'dest': '\\1 (\\2, Specimen Sent)\\4: Specimens Sent',
      'name': '\\1 (\\2, \\3, TB Test Type)\\4: Specimens Sent <= Specimens Sent',
      'id': 'MR11'},
-    {'source': re.compile('GEND_GBV \(N, (\S+), PEP\)( TARGET|): GBV Care'),
+    {'source': re.compile('GEND_GBV \(N, (\S+), PEP\): GBV Care'),
      'op': 'less_than_or_equal_to',
-     'dest': ['GEND_GBV (N, \\1, Age/Sex/ViolenceType)\\2: GBV Care',
+     'dest': ['GEND_GBV (N, \\1, Age/Sex/ViolenceType): GBV Care',
               'Unknown Age, Female, Sexual Violence (Post-Rape Care)',
               '<10, Female, Sexual Violence (Post-Rape Care)',
               '10-14, Female, Sexual Violence (Post-Rape Care)',
@@ -336,8 +339,8 @@ rulePatterns = [
               '20-24, Male, Sexual Violence (Post-Rape Care)',
               '25-49, Male, Sexual Violence (Post-Rape Care)',
               '50+, Male, Sexual Violence (Post-Rape Care)'],
-     'name': 'GEND_GBV (N, \\1, PEP)\\2: GBV Care <= GEND_GBV (N, DSD, Age/Sex/ViolenceType=Sexual Violence)',
-     'destElementName': 'Sum of GEND_GBV (N, \\1, Age/Sex/ViolenceType=Sexual Violence)\\2: GBV Care',
+     'name': 'GEND_GBV (N, \\1, PEP): GBV Care <= GEND_GBV (N, \\1, Age/Sex/ViolenceType=Sexual Violence)',
+     'destElementName': 'Sum of GEND_GBV (N, \\1, Age/Sex/ViolenceType=Sexual Violence): GBV Care',
      'id': 'MR12'},
     {'source': re.compile('(.+) \((.),\s*(\S+),\s*([^,)]+)\)( TARGET|): HTC result positive'),
      'op': 'less_than_or_equal_to',
@@ -511,7 +514,12 @@ rulePatterns = [
     {'source': re.compile('VMMC_CIRC_(SUB|)NAT \(N, (SUB|)NAT\)( TARGET|): Voluntary Circumcised'),
      'op': 'less_than_or_equal_to',
      'dest': ['VMMC_TOTALCIRC_\\1NAT (N, \\2NAT)\\3: Voluntary Circumcised'],
-     'id': 'MR42'}
+     'id': 'MR42'},
+    {'source': re.compile('GEND_GBV \(N, (\S+), PEP\) TARGET: GBV Care'),
+     'op': 'less_than_or_equal_to',
+     'dest': ['GEND_GBV (N, \\1, ViolenceServiceType) TARGET v2: GBV Care', 'Sexual Violence (Post-Rape Care)'],
+     'name': 'GEND_GBV (N, \\1, PEP) TARGET: GBV Care <= GEND_GBV (N, \\1, ViolenceType=Sexual Violence)',
+     'id': 'MR43'}
     ]
 
 def getDeStartingWith(destName):
